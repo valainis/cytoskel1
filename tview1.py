@@ -605,7 +605,7 @@ class MainWindow(QMainWindow):
 
 
     def createMenus(self):
-        #self.menuBar().setNativeMenuBar(False)
+        self.menuBar().setNativeMenuBar(False)
         self.fileMenu = self.menuBar().addMenu("&File")
         self.fileMenu.addAction(self.open_project_action)
         
