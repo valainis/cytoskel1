@@ -86,7 +86,8 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
 
         cell_picker = vtk.vtkCellPicker()
         #cell_picker.Pick(click_pos[0], click_pos[1], 0, self.GetDefaultRenderer())
-        cell_picker.Pick(click_pos[0], click_pos[1], 0, self.renderer)
+        #cell_picker.Pick(click_pos[0], click_pos[1], 0, self.renderer)
+        cell_picker.Pick(.5*click_pos[0], .5*click_pos[1], 0, self.renderer)
 
         input_ids = self.glyphs.GetOutput().GetPointData().GetArray("InputPointIds")
 
