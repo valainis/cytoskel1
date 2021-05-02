@@ -163,8 +163,6 @@ class tmap:
 
         N0 = csk.df.shape[0]
 
-        print("csk",id(csk))
-
         #Xtraj = ux_init0(csk,tscale)
         if mds_init:
             Xtraj,td,edges = ux_init2(csk,tscale)        
@@ -198,7 +196,7 @@ class tmap:
 
         print("time 0",t1-t0)
 
-        uhead = ["umap1","umap2"]
+        uhead = ["tiUMAP1","tiUMAP2"]
         dfu = pd.DataFrame(tm4.thead,columns=uhead)
         df2 = pd.concat([td.df_tot,dfu],axis=1)
         df2.to_csv(csk.project_dir + "df_tumap.csv",index = False)

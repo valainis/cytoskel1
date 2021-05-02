@@ -44,6 +44,8 @@ from matplotlib import cm
 
 import multiprocessing as mp
 
+import traceback
+
 
 
 
@@ -1467,7 +1469,9 @@ class cytoskel:
         if not os.path.exists(fname):
             return None
 
-        print("loading: ",fname)        
+        print("loading: ",fname)
+
+        #traceback.print_stack()
 
         f = open(fname,"rb")
         obj = pickle.load(f)
