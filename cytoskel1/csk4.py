@@ -699,7 +699,7 @@ class cytoskel:
         project_dir = self.project_dir
         dir_name = self.project_dir
 
-        
+        df.loc[:,'rindex'] = np.arange(df.shape[0])+1        
 
         if not os.path.exists(project_dir):
             os.mkdir(project_dir)
@@ -724,7 +724,9 @@ class cytoskel:
         f0.write(str(self.params))
         f0.close()
 
-        self.df = df        
+        self.df = df
+
+
 
         self.markers = list(self.df.columns)
         self.traj_markers = traj_markers
@@ -808,6 +810,12 @@ class cytoskel:
         self.df = pd.read_csv(project_dir+"mdata.csv")
         self.markers = list(self.df.columns)
         self.df_avg = pd.read_csv(project_dir+"avg_mdata.csv")
+
+        if not ('rindex' in self.df.columns):
+            print("NO rindex, adding")
+            self.df.loc[:,'rindex'] = np.arange(self.df.shape[0])+1
+            self.df_avg.loc[:,'rindex'] = np.arange(self.df.shape[0])+1           
+            print("added rindex")
 
         markers = list(self.df.columns)
 
@@ -1513,7 +1521,10 @@ class cytoskel:
             same = adjv0 == adjv
             if not same: break
 
-        avg_same = np.allclose(csk0.df_avg.values,self.df_avg.values,atol=1e-4)
+        Xself = self.df_avg.loc[:,self.traj_markers].values
+        X0 = csk0.df_avg.loc[:,self.traj_markers].values        
+
+        avg_same = np.allclose(Xself,X0,atol=1e-4)
         return same,avg_same
 
 

@@ -61,6 +61,8 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
     #def _left_button_press_event(self, obj, event):
     def _right_button_press_event(self, obj, event):
 
+        win = self.pobj.vtkWidget.GetRenderWindow()
+
         #this gives window coords, lower left is 0,0, x is left_right
         click_pos = self.GetInteractor().GetEventPosition()
 
@@ -75,9 +77,19 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
             print("removed")
             self.OnRightButtonDown()            
             return
-        
 
-        print("pos",click_pos)
+
+        size0 = win.GetSize()
+        print("pos",click_pos,size0)
+
+        #this is work around to solve problem with retina
+        #which depends on vtk install
+        # not clear if will fail on ubuntu or windows
+        # user should be able to set something instead
+        if (size0[0] < 1024) or (size0[1] < 1024):
+            sfac = .5
+        else:
+            sfac = 1.0
         """
         #picking can be slow with lots of points
         self.OnLeftButtonDown()
@@ -87,7 +99,7 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         cell_picker = vtk.vtkCellPicker()
         #cell_picker.Pick(click_pos[0], click_pos[1], 0, self.GetDefaultRenderer())
         #cell_picker.Pick(click_pos[0], click_pos[1], 0, self.renderer)
-        cell_picker.Pick(.5*click_pos[0], .5*click_pos[1], 0, self.renderer)
+        cell_picker.Pick(sfac*click_pos[0], sfac*click_pos[1], 0, self.renderer)
 
         input_ids = self.glyphs.GetOutput().GetPointData().GetArray("InputPointIds")
 
