@@ -399,7 +399,7 @@ class mst:
 
 
         ncomp, labels = sp.csgraph.connected_components(bb,directed=False)
-        print("components",ncomp)
+        print("mst components",ncomp)
         
         #now do the mst
         tmp = sp.csgraph.minimum_spanning_tree(bb)
@@ -1113,20 +1113,22 @@ class cytoskel:
 
         self.n_process = n_process
 
+        print("starting graphs with",n_process,"processes")
+        t0 = time.time()
+
         if not self.level_marker:
             self.params['nn_neighbors'] = nn_neighbors
             self.write_params()         
-            t2 = time.time()
             self.do_nn_graph(nn_neighbors)
-            t3 = time.time()        
-            self.add_log("nn time "+str(t3 - t2))
             self.do_mst_graph()
-            t4= time.time()
-            print("mst time",t4-t3)
         else:
             self.link(self.level_marker)
 
+        t1= time.time()
+
         self.write_params()
+
+        print("graph time",t1 - t0)
 
         ltmp = self.csr_mst.tolil()
 
@@ -1141,7 +1143,6 @@ class cytoskel:
     def do_nn_graph(self,k):
         k = int(k)
         nsegs = self.n_process
-        print("nn",nsegs)
         
         #knn = knn_graph(self.df_traj.values,self.df_traj.values,nsegs=nsegs)
         knn = knn_graph(self.X,self.X,nsegs=nsegs)
