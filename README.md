@@ -62,7 +62,7 @@ do
 > conda deactivate
 and activate again if you want to run Cytoskel again
 
-####
+#### Documentation and Examples
 Documentation discussing cytoskel algorithms is in directory docs
 
 notebooks contains cytoskel examples in jupyter notebooks.
