@@ -53,3 +53,5 @@ venv.bak/
 
 #cytoskel logging files
 log.txt
+#notebook generated directories
+notebooks/wanderlust1/
