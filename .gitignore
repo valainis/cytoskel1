@@ -55,3 +55,4 @@ venv.bak/
 log.txt
 #notebook generated directories
 notebooks/wanderlust1/
+**/.ipynb_checkpoints
