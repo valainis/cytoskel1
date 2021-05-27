@@ -62,6 +62,15 @@ do
 > conda deactivate
 and activate again if you want to run Cytoskel again
 
+####
+Documentation discussing cytoskel algorithms is in directory docs
+
+notebooks contains cytoskel examples in jupyter notebooks.
+
+The test directory contains python and R scripts as examples of
+cytoskel runs. The tgen scripts run basic cytoskel. The tlink scripts
+do data with time points.
+
 
 
 
