@@ -49,10 +49,12 @@ import traceback
 
 
 
-def tumap_plot(X,segs,df,clist,skip=1):
+def tumap_plot(X,segs,df,clist,skip=1,nrow=1,ncol=1):
     tvecs = X.T
 
-    ntot = len(clist)
+    """
+    #ntot = len(clist)
+    ntot = np.min(nrow*ncol,len(clist))
 
     if ntot == 1:
         nrow = 1
@@ -66,10 +68,12 @@ def tumap_plot(X,segs,df,clist,skip=1):
     else:
         nrow = 2
         ncol = 3
+    """
 
-    fig,axes = plt.subplots(nrow,ncol)
+    fig,axes = plt.subplots(nrow,ncol,figsize=(9,4))
+    ntot = len(clist)
 
-    if ntot == 1:
+    if nrow*ncol == 1:
         axes = np.array([axes])
     else:
         axes = axes.flatten()
@@ -79,7 +83,7 @@ def tumap_plot(X,segs,df,clist,skip=1):
         print(clist[i])
         color = df.loc[:,clist[i]].values
         #ax.scatter(tvecs[0,:], tvecs[1,:],c=df.loc[:,clist[i] ], s=.3,cmap=cm.jet,vmin=0.0,alpha=.2)
-        ax.scatter(tvecs[0,::skip], tvecs[1,::skip],c=color[::skip], s=.3,cmap=cm.jet,vmin=0.0,alpha=.9)        
+        ax.scatter(tvecs[0,::skip], tvecs[1,::skip],c=color[::skip], s=1,cmap=cm.jet,vmin=0.0,alpha=1.0)        
         ax.set_xlabel(clist[i],fontsize=16,fontweight='bold')
         ax.axis('equal')
         ax.set_xticklabels([])
@@ -389,8 +393,10 @@ class mst:
 
         print("starting mst")
 
-        dist1 = dist
+        dist1 = dist.copy()
         ind1 = ind
+
+        dist1 += 1e-8
 
         sadj = sparse_adj(ind1,dist1)
         bb = sadj.csr_adj
@@ -399,10 +405,16 @@ class mst:
 
 
         ncomp, labels = sp.csgraph.connected_components(bb,directed=False)
-        print("mst components",ncomp)
+        print("nn components",ncomp)
         
         #now do the mst
         tmp = sp.csgraph.minimum_spanning_tree(bb)
+
+        print("tmp",type(tmp))
+
+        ncomp, labels = sp.csgraph.connected_components(tmp,directed=False)
+
+        print("tmp mst components",ncomp)                
 
         tmp = sp.coo_matrix(tmp)
 
@@ -411,6 +423,10 @@ class mst:
         self.coo_mst = sym_coo(tmp)
 
         self.csr_mst = self.coo_mst.tocsr()
+
+        ncomp, labels = sp.csgraph.connected_components(self.csr_mst,directed=False)
+
+        print("mst components",ncomp)        
         
 
         
@@ -1150,6 +1166,8 @@ class cytoskel:
         self.adj = knn.ind[:,1:]
         self.dist = knn.dist[:,1:]
 
+        np.savez(self.project_dir+"nn0.npz",adj = self.adj, dist = self.dist)        
+
 
     def do_density(self):
         self.density = 1.0/(self.dist[:,0] + 1e-2)
@@ -1290,6 +1308,7 @@ class cytoskel:
             glist = set(self.df[gcol])
             glist = list(glist)
             glist.sort()
+
 
         #create booleans for the groups in order
         lev = []
