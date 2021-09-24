@@ -400,6 +400,19 @@ def mk_maps(df,pcells):
     return map0,rmap0
 
 
+def mk_rmap0(N,pcells):
+
+    map0 = np.array(pcells,dtype=int)
+    npcells = len(pcells)
+
+    idx0 = np.arange(npcells)
+
+    rmap0 = np.full((N,),-1,dtype=np.int)
+    rmap0[map0] = idx0
+
+    return map0,rmap0
+
+
 def write_setup(sname,
                     markers,
                     traj_m,

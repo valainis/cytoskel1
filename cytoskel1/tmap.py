@@ -87,7 +87,7 @@ def ux_init0(csk,tscale):
     
 
 
-def ux_init2(csk,tscale):
+def ux_init2(csk,tscale,seed=3738):
     td = csk1.tree_dist(csk)
     df_tot,tree_edges = td.splice()    
 
@@ -110,7 +110,7 @@ def ux_init2(csk,tscale):
     dist = euclidean_distances(dX)
 
     #np.random.seed(3738)
-    np.random.seed(137)
+    np.random.seed(seed)
     t0 = time.time()
     mds = manifold.MDS(n_components=2,dissimilarity="precomputed")
     ux2 = mds.fit(dist).embedding_

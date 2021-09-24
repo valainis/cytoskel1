@@ -1205,6 +1205,7 @@ class cytoskel:
 
 
     def get_average_fix(self,avg_markers,fixed=[],navg=5,ntree=4,sfile=None):
+        #note: radius is ntree+1
 
         self.write_x(avg_markers,"ahead.txt")
         self.avg_markers = avg_markers
@@ -1583,7 +1584,7 @@ class cytoskel:
         e0 = list(e1.index)
         edges = np.array([e0,e1]).T
 
-        ux = df.loc[:,["umap1","umap2"]].values
+        ux = df.loc[:,["tiUMAP1","tiUMAP2"]].values
 
         segs = ux[edges].copy()
         Rsegs = ux[edges].reshape( (-1,4) )
