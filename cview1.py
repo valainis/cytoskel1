@@ -366,7 +366,11 @@ class MWin(QMainWindow):
         cell_data = df_info.loc[cell,:].values
         
         for i,m in enumerate(markers):
-            info.append(mw % m + " " + "%9.3f" % cell_data[i])
+            cd = cell_data[i]
+            if isinstance(cd,str):
+                info.append(mw + " " + cd)
+            else:
+                info.append(mw % m + " " + "%9.3f" % cell_data[i])
 
         qstr = "\n".join(info)
 

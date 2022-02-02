@@ -37,25 +37,40 @@ import numpy.linalg as la
 
 import cytoskel1 as csk1
 
+from cytoskel1.gu import fgraph,critical0
+
 from vtk.util import numpy_support as ns
 from sklearn.decomposition import NMF
 
+from sklearn.metrics import euclidean_distances
+from sklearn import manifold
+
+
+def get_sparsity(csr_dist):
+    #csr_dist is sparse adjacency
+    dist = csr_dist.sum(axis=1)
+    N = csr_dist.shape[1]
+    dist = np.array(dist)
+
+    nnz0 = np.array(csr_dist.getnnz(axis=1))
+    #need to do it like this, otherwise numpy confusion?
+    dist /= nnz0[:,None]
+
+    #dist is measure of inverse density
+    return dist.flatten(),nnz0
 
 
 
 class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
     cell_picked = pyqtSignal(int)
 
-    def __init__(self, vpts,pobj):
-        self.r0 = vpts.r0
-        self.glyphs = vpts.glyph
-        #self.renderer = renderer
+    def __init__(self, vpts_dict,pobj):
+        self.vpts_dict = vpts_dict
         self.renderer = pobj.ren
         #self.AddObserver("LeftButtonPressEvent", self._left_button_press_event)
         self.AddObserver("RightButtonPressEvent", self._right_button_press_event)
-        self.map0 = vpts.map0
 
-        self.actor = None
+        self.actors = []
         self.pobj = pobj
 
     #def _left_button_press_event(self, obj, event):
@@ -70,12 +85,14 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         #scale = 2
         #click_pos = [ p*scale for p in click_pos ]
 
-
-        if self.actor != None:
-            self.renderer.RemoveActor(self.actor)
-            self.actor = None
-            print("removed")
-            self.OnRightButtonDown()            
+        print("\n\n")
+        print("actors",len(self.actors))
+        if len(self.actors) > 0:
+            for actor in self.actors:
+                self.renderer.RemoveActor(actor)
+            self.OnRightButtonDown()
+            print("REMOVED")
+            self.actors = []
             return
 
 
@@ -90,59 +107,88 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
             sfac = .5
         else:
             sfac = 1.0
+
+        sfac = 1.0
         """
         #picking can be slow with lots of points
         self.OnLeftButtonDown()
         return
         """
 
+        coord = vtk.vtkCoordinate()
+        coord.SetCoordinateSystemToWorld()        
+
         cell_picker = vtk.vtkCellPicker()
         #cell_picker.Pick(click_pos[0], click_pos[1], 0, self.GetDefaultRenderer())
         #cell_picker.Pick(click_pos[0], click_pos[1], 0, self.renderer)
         cell_picker.Pick(sfac*click_pos[0], sfac*click_pos[1], 0, self.renderer)
 
-        input_ids = self.glyphs.GetOutput().GetPointData().GetArray("InputPointIds")
+        for proj in self.vpts_dict:
+            vpts = self.vpts_dict[proj]
+            glyph = vpts.glyph
+            input_ids = glyph.GetOutput().GetPointData().GetArray("InputPointIds")
 
-        if input_ids:
-            cell = self.glyphs.GetOutput().GetCell(cell_picker.GetCellId())
-            print("cell",cell)
-            if cell and cell.GetNumberOfPoints() > 0:
-                input_id = cell.GetPointId(0)
-                selected_id = input_ids.GetTuple1(input_id)
-                if selected_id >= 0:
-                    highlight_sphere = vtk.vtkSphereSource() 
-                    #highlight_sphere.SetRadius(1.16*self.r0)
-                    print("highlight")
-                    highlight_sphere.SetRadius(self.r0)
-                    highlight_sphere.SetThetaResolution(8)
-                    highlight_sphere.SetPhiResolution(8)
-                    #highlight_sphere.SetCenter(self.glyphs.GetOutput().GetPoint(int(selected_id)))
-                    print("selected",selected_id)
+            print(type(input_ids))
 
-                    sid = int(selected_id)
-                    cell = self.map0[sid]
+            if input_ids:
+                cell = glyph.GetOutput().GetCell(cell_picker.GetCellId())
+                #print("cell",cell)
+                if cell and cell.GetNumberOfPoints() > 0:
+                    input_id = cell.GetPointId(0)
+                    selected_id = input_ids.GetTuple1(input_id)
+                    if selected_id >= 0:
+                        highlight_sphere = vtk.vtkSphereSource() 
 
-                    self.pobj.cell_info(cell)
+                        print("highlight")
+                        highlight_sphere.SetRadius(vpts.r0)
+                        highlight_sphere.SetThetaResolution(8)
+                        highlight_sphere.SetPhiResolution(8)
 
-                    #self.cell_picked.emit(cell)
+                        print("selected",selected_id)
 
-                    highlight_sphere.SetCenter(self.glyphs.GetInput().GetPoint(int(selected_id)))                    
-                    mapper = vtk.vtkPolyDataMapper()
-                    mapper.SetInputConnection(highlight_sphere.GetOutputPort())
+                        sid = int(selected_id)
+                        n_cell = vpts.map0[sid]
 
-                    highlight_actor = vtk.vtkActor()
-                    highlight_actor.SetMapper(mapper)
-                    highlight_actor.GetProperty().SetColor(1.0,0.0,1.0)
-                    self.renderer.AddActor(highlight_actor)
-                    self.actor = highlight_actor
+                        
 
-                    print("Pick!")
+                        self.pobj.cell_info(n_cell,proj)
+
+                        #self.cell_picked.emit(cell)
+                        #get the world coords of the selected cell
+                        pnt00 = glyph.GetInput().GetPoint(int(selected_id))
+
+                        print("pnt00",pnt00)
+                        coord.SetValue(pnt00)
+                        dpnt00 = coord.GetComputedDisplayValue(self.renderer)
+
+                        print("dpnt00",dpnt00)
+
+                        dx = abs(dpnt00[0] - click_pos[0])
+                        dy = abs(dpnt00[1] - click_pos[1])
+
+                        print("dx dy",dx,dy)
+
+                        ok = False
+
+                        dmax = max(dx,dy)
+
+                        if dmax <= 15:
+
+                            highlight_sphere.SetCenter(glyph.GetInput().GetPoint(int(selected_id)))                    
+                            mapper = vtk.vtkPolyDataMapper()
+                            mapper.SetInputConnection(highlight_sphere.GetOutputPort())
+
+                            highlight_actor = vtk.vtkActor()
+                            highlight_actor.SetMapper(mapper)
+                            highlight_actor.GetProperty().SetColor(1.0,0.0,1.0)
+                            self.renderer.AddActor(highlight_actor)
+
+                            self.actors.append(highlight_actor)
+
+                        print("Pick!",proj,n_cell)
         #self.OnLeftButtonDown()
         self.OnRightButtonDown()
         return
-
-
-        
 
 def mk_maps(df,pcells):
 
@@ -321,7 +367,6 @@ class MSlide(QDialog):
       rad = size * .12 / 20
 
       mwin = self.parent()
-      #mwin.do_radius(mwin.vpts,rad)
       do_radius2(mwin,mwin.vpts,rad)
         
     def apply(self):
@@ -374,118 +419,313 @@ def do_radius2(mwin,vpts,rad=.12):
 
     mwin.vtkWidget.GetRenderWindow().Render()
 
+#attempt to do stuff with camera
+def save_image(mwin):
+    im = vtk.vtkWindowToImageFilter()
+    ren = mwin.ren
+    #ren = mwin.vtkWidget.GetRenderWindow().Render()
+
+    """
+    rwin = mwin.vtkWidget.GetRenderWindow()
+    im.SetInput(rwin)
+    im.Update()
+    """
+    
+    cam = ren.GetActiveCamera()
+
+    print("got cam")
+
+    """
+    vtk_image = im.GetOutput()
+
+    width, height, _ = vtk_image.GetDimensions()
+    vtk_array = vtk_image.GetPointData().GetScalars()
+    components = vtk_array.GetNumberOfComponents()
+
+    print("save",width,height,components)
+
+    #arr = ns.vtk_to_numpy(vtk_array).reshape(height, width, components)
+
+    arr = ns.vtk_to_numpy(vtk_array)
+
+    arr2 = arr.reshape(height, width, components)
+
+    print("arr",arr.shape,arr2.shape)
+
+    print("aaf",arr[0,0],arr[-1,-1])
+
+    np.savetxt("im_file.txt",arr)
+    
+
+    writer = vtk.vtkPNGWriter()
+
+    writer.SetInputConnection(im.GetOutputPort())
+    writer.SetFileName("file.png")
+    writer.Write()
+    """
+
+    print("ren", type(ren))
+
+    #this scales the model, nothing to do with camera ?
+    #and just in z
+    transform = vtk.vtkTransform()
+    s_x = 1.0; s_y = 1.0; s_z = 3.0
+    transform.Scale(s_x, s_y, s_z)
+    cam.SetModelTransformMatrix(transform.GetMatrix())    
+    
+
+    print("save image")
+
 
 def do_color2(mwin,mode_changed=False):
 
-    do_vpts2 = mwin.do_vpts2
-    
-    iren2 = mwin.vtkWidget.GetRenderWindow().GetInteractor()
+    cmap = mpl.cm.get_cmap('jet')
 
-    if not hasattr(mwin,"vpts"):
-        print("no data")
-        return
+    for i,vpts in enumerate(mwin.vpoints_list):
 
-    map0 = mwin.vpts.map0
-    dfm = mwin.df_info.loc[map0,:]
+        map0 = vpts.map0
+        dfm = vpts.df_info.loc[map0,:]
 
-    print("do_color2")
+        if i == 0:
+            dlg = MRad(mwin,list(dfm.columns))
+            dlg.setWindowTitle("marker")
+            #put the dialog where is does not obscure the view
+            dlg.move(50,50)
+            dlg.exec_()
+
+        m = mwin.m
+
+        colors = dfm.loc[:,m].values
+
+        #vmin = 0.0
+        vmin = np.amin(colors)
+        vmax = np.amax(colors)
+
+        mwin.c0.cbar(vmin,vmax)
+        mwin.c0.cb.set_label(m)
+        mwin.c0.draw()
+
+        
+
+        colors = (colors - vmin)/(vmax-vmin)
+
+        colors8 = cmap(colors,bytes=True)
+
+        print("colors8",colors8[0])
+
+        
+
+        scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+
+        #this works
+        vpts.p_data.GetPointData().RemoveArray('col8')
+
+        #actor mapper can be gotten to change color array to use etc
+        mapper = vpts.actor.GetMapper()
+
+        scol8.SetName('col8')
+        vpts.p_data.GetPointData().AddArray(scol8)
+
+    #did not work as wanted
+    #save_image(mwin)        
+
+    mwin.vtkWidget.GetRenderWindow().Render()
 
 
-    if not mode_changed:
-        dlg = MRad(mwin,list(dfm.columns))
-        dlg.setWindowTitle("marker")
-        dlg.exec_()
 
 
-    m = mwin.m
-    colors = dfm.loc[:,m].values
-
-
+def sparsity(mwin,mode_changed=False):
+    #actually sparseness
 
     cmap = mpl.cm.get_cmap('jet')
 
-    vmin = np.amin(colors)
-    vmax = np.amax(colors)
+    for i,vpts in enumerate(mwin.vpoints_list):
 
-    mwin.c0.cbar(vmin,vmax)
-    mwin.c0.cb.set_label(m)
-    mwin.c0.draw()
+        map0 = vpts.map0
+        dfm = vpts.df_info.loc[map0,:]
 
+        if vpts.csk:
+            csk = vpts.csk
+            print("mst",csk.csr_mst.shape)
+            sdist,nnz0 = get_sparsity(csk.csr_mst)
 
-    #colors = colors/np.amax(colors)
+        m = "sparsity"
 
-    #fixed as in vpara
-    colors = (colors - vmin)/(vmax-vmin)    
+        #colors = dfm.loc[:,m].values
+        colors = sdist[map0]
 
-    colors8 = cmap(colors,bytes=True)
+        #vmin = 0.0
+        vmin = np.amin(colors)
+        vmax = np.amax(colors)
 
-    scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+        mwin.c0.cbar(vmin,vmax)
+        mwin.c0.cb.set_label(m)
+        mwin.c0.draw()
 
-    #this works
-    mwin.vpts.p_data.GetPointData().RemoveArray('col8')
+        colors = colors/np.amax(colors)
 
-    scol8.SetName('col8')
-    mwin.vpts.p_data.GetPointData().AddArray(scol8)
+        colors8 = cmap(colors,bytes=True)
 
+        print("colors8",colors8[0])
 
-    if do_vpts2:
-        df2 = mwin.df_skip
-        colors2 = df2.loc[:,m].values
-        colors2 = colors2/vmax
-        colors8_2 = cmap(colors2,bytes=True)
-
-        colors8_2 = colors8_2
-
-        colors8_2[:,3] = 32
         
-        scol8_2 = ns.numpy_to_vtk(num_array=colors8_2, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
 
-        mwin.vpts2.p_data.GetPointData().RemoveArray('col8')
-        scol8_2.SetName('col8')
-        mwin.vpts2.p_data.GetPointData().AddArray(scol8_2)
-        mwin.ren.AddActor(mwin.vpts2.actor)
-        mwin.vpts2_actor = True
-        print("added scol8_2")
+        scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
 
-    else:
-        if mwin.vpts2_actor:
-            mwin.ren.RemoveActor(mwin.vpts2.actor)
-            mwin.vpts2_actor = False
+        #this works
+        vpts.p_data.GetPointData().RemoveArray('col8')
+
+        #actor mapper can be gotten to change color array to use etc
+        mapper = vpts.actor.GetMapper()
+
+        scol8.SetName('col8')
+        vpts.p_data.GetPointData().AddArray(scol8)
+
+    mwin.vtkWidget.GetRenderWindow().Render()
+
+
+def critical00(mwin):
+    #actually sparseness
+
+    cmap = mpl.cm.get_cmap('jet')
+
+    for i,vpts in enumerate(mwin.vpoints_list):
+
+        map0 = vpts.map0
+        dfm = vpts.df_info.loc[map0,:]
+
+        if vpts.csk:
+            csk = vpts.csk
+            print("mst",csk.csr_mst.shape)
+            sdist,nnz0 = get_sparsity(csk.csr_mst)
+
+            c0 = critical0(csk)
+
+            print(c0.crit_pnts)
+
+        dfm = vpts.df_info.loc[c0.crit_pnts,:]
+
+        print("dfm",dfm.shape)
+
+        vtk_rscale = vpts.p_data.GetPointData().GetArray("scales")
+        rscale = ns.vtk_to_numpy(vtk_rscale)
+
+        print("rscale",rscale.dtype)
+
+        print(rscale[0])
+
+        m = "critical"
+
+        #colors = dfm.loc[:,m].values
+        colors = sdist[map0]
+
+        #vmin = 0.0
+        vmin = np.amin(colors)
+        vmax = np.amax(colors)
+
+        mwin.c0.cbar(vmin,vmax)
+        mwin.c0.cb.set_label(m)
+        mwin.c0.draw()
+
+        colors = colors/np.amax(colors)
+
+        colors8 = cmap(colors,bytes=True)
+
+        print("colors8",colors8[0])
+
         
-    #ok this works, can add and remove actors at will
-    #test
-    #mwin.ren.RemoveActor(mwin.vpts2.actor)
+
+        scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+
+        #this works
+        vpts.p_data.GetPointData().RemoveArray('col8')
+
+        #actor mapper can be gotten to change color array to use etc
+        mapper = vpts.actor.GetMapper()
+
+        scol8.SetName('col8')
+        vpts.p_data.GetPointData().AddArray(scol8)
 
     mwin.vtkWidget.GetRenderWindow().Render()
     
+def critical(mwin,mode_changed=False):
 
+    cmap = mpl.cm.get_cmap('jet')
+
+    for i,vpts in enumerate(mwin.vpoints_list):
+        csk = vpts.csk
+
+        map0 = vpts.map0
+        dfm = vpts.df_info.loc[map0,:]
+
+        if i == 0:
+            dlg = MRad(mwin,list(dfm.columns))
+            dlg.setWindowTitle("marker")
+            dlg.exec_()
+
+        m = mwin.m
+
+        colors = dfm.loc[:,m].values
+
+        #vmin = 0.0
+        vmin = np.amin(colors)
+        vmax = np.amax(colors)
+
+        mwin.c0.cbar(vmin,vmax)
+        mwin.c0.cb.set_label(m)
+        mwin.c0.draw()
+
+        colors = colors/np.amax(colors)
+
+        colors8 = cmap(colors,bytes=True)
+
+        print("colors8",colors8[0])
+
+        c0 = critical0(csk,n_iter=4)
+
+        crit_pnts0 = vpts.rmap0[c0.crit_pnts]
+
+        print("crit_pnts",crit_pnts0)
+
+        vtk_rscale = vpts.p_data.GetPointData().GetArray("scales")
+        rscale = ns.vtk_to_numpy(vtk_rscale)
+
+        fac = 2.0
+        rscale /= fac
+
+        rscale[crit_pnts0] *= fac
+        
+
+
+        scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+
+        #this works
+        vpts.p_data.GetPointData().RemoveArray('col8')
+
+        #actor mapper can be gotten to change color array to use etc
+        mapper = vpts.actor.GetMapper()
+
+        scol8.SetName('col8')
+        vpts.p_data.GetPointData().AddArray(scol8)
+
+    mwin.vtkWidget.GetRenderWindow().Render()
 
 class vpoints:
-    def __init__(self,data,rscale):
+    def __init__(self,data,rscale,src,name=None,csk=None):
         self.data = data
-        sphere = vtk.vtkSphereSource()
-        ndiv = 8
-        sphere.SetThetaResolution(ndiv)
-        sphere.SetPhiResolution(ndiv)
-        #this sets the original radius of
-        #the sphere for the glyph
-        sphere.SetRadius(.5)
-
+        self.name = name
+        self.csk = csk
         points = vtk.vtkPoints()
-        
         p_data = vtk.vtkPolyData() #note polydata
-        
         self.p_data = p_data
 
         npnts = data.shape[0]
         points.SetNumberOfPoints(npnts)
 
-
         data2 = ns.numpy_to_vtk(num_array=data, deep=True, array_type=vtk.VTK_FLOAT)
-
         points.SetData(data2)
 
-        #this will be used to scale the glyph sphere radii
+        #this will be used to scale the glyph size
         #could vary on sphere by sphere basis
         #rad = np.full(npnts,1.0) #note .2        
         srad = ns.numpy_to_vtk(num_array=rscale, deep=True, array_type=vtk.VTK_FLOAT)
@@ -498,17 +738,40 @@ class vpoints:
         glyph = vtk.vtkGlyph3D()
         glyph.GeneratePointIdsOn()
         glyph.SetInputData(p_data)
-        glyph.SetSourceConnection(sphere.GetOutputPort())
+        #glyph.SetSourceConnection(sphere.GetOutputPort())
+        #glyph.SetSourceConnection(cube.GetOutputPort())
+        glyph.SetSourceConnection(src.GetOutputPort())
         glyph.Update()
 
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputConnection(glyph.GetOutputPort())
+
+        #with out this the scales array is used for color
+        #it seems to be necessary for using the color array
+        #in later updates as well
+        mapper.SetScalarModeToUsePointFieldData()
+
+        #this version again yields white colors, despite col8
+        #mapper.SetScalarModeToUseCellData()        
+
+
+        white = np.full( (npnts,4),255,dtype=np.uint8)
+        white[:,2] = 0
+        scol8 = ns.numpy_to_vtk(num_array=white, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+
+        scol8.SetName('col8')
+        p_data.GetPointData().AddArray(scol8)
         
-        mapper.SetScalarModeToUsePointFieldData() # without, color are displayed regarding radius and not color label
-        mapper.SelectColorArray("col8") # !!!to set color (nevertheless you will have nothing)
+
+        #this sets the color array to be "col8", even tho it is not there yet
+        #but it will be later in do_color2
+        mapper.SelectColorArray("col8")
 
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
+
+        #white = np.full( (npnts,4),255,dtype=np.uint8)
+        
 
         self.actor = actor
         self.glyph = glyph
@@ -558,6 +821,33 @@ class vpoints:
         self.line_actor = line_actor
 
 
+def mk_transform(csk):
+    pcells = list(csk.br_adj.keys())
+    tcols = csk.traj_markers
+    
+    tdata0 = csk.df_avg.loc[pcells,tcols].values
+    n = tdata0.shape
+
+    pca = csk1.pca_coords(tdata0)
+
+    uut = pca.uu.T
+
+    uut = list(uut)
+
+    print(uut[0].shape)
+
+    uut.append(pca.mu)
+
+    uut = np.array(uut)
+
+
+    df_uut = pd.DataFrame(uut,columns=tcols)
+
+    #df_uut.to_csv("df_uut.csv",index=False)
+    return df_uut
+
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self, parent = None):
@@ -567,7 +857,27 @@ class MainWindow(QMainWindow):
         self.vl = QHBoxLayout()
         self.vtkWidget = QVTKRenderWindowInteractor(self.frame)
 
+        self.vpoints_list = []
+        self.vpoints_dict = {}
 
+        sphere = vtk.vtkSphereSource()
+        ndiv = 8
+        sphere.SetThetaResolution(ndiv)
+        sphere.SetPhiResolution(ndiv)
+        #this sets the original radius of
+        #the sphere for the glyph
+        sphere.SetRadius(.5)
+
+        cube = vtk.vtkCubeSource()
+        cube.SetXLength(.75)
+
+        cone = vtk.vtkConeSource()
+        cone.SetRadius(.5)
+        cone.SetHeight(1.0)
+        
+
+        self.src_list = [sphere,cone,cube]
+        
 
         #set up text widget
         font = QFont()
@@ -579,7 +889,14 @@ class MainWindow(QMainWindow):
 
         txt = QPlainTextEdit()
         txt.setFont(font)
-        txt.setMaximumWidth(400)        
+        txt.setMaximumWidth(400)
+
+
+        #p = txt.palette()
+
+        #ok this works to set txt back color
+        txt.setStyleSheet("background-color: #999999")
+
         self.txt = txt        
 
         c0 = canvas0()        
@@ -624,9 +941,12 @@ class MainWindow(QMainWindow):
         self.menuBar().setNativeMenuBar(False)
         self.fileMenu = self.menuBar().addMenu("&File")
         self.fileMenu.addAction(self.open_project_action)
+        self.fileMenu.addAction(self.get_transform_action)        
         
         self.actionMenu = self.menuBar().addMenu("&Action")
         self.actionMenu.addAction(self.color_action)
+        self.actionMenu.addAction(self.density_action)
+        self.actionMenu.addAction(self.critical_action)                
         self.actionMenu.addAction(self.slide_action)
 
         self.modeMenu = self.menuBar().addMenu("&Mode")
@@ -634,8 +954,11 @@ class MainWindow(QMainWindow):
         
     def createActions(self):
         self.open_project_action = QAction("&Open Project...", self,triggered=self.open_project)
+        self.get_transform_action = QAction("&Get Transform...", self,triggered=self.get_transform)        
         
         self.color_action = QAction("&Color", self, triggered=self.do_color)
+        self.density_action = QAction("&Sparsity", self, triggered=self.do_sparsity)
+        self.critical_action = QAction("&Critical", self, triggered=self.do_critical)        
         self.slide_action = QAction("Size", self, triggered=self.do_slide)
 
         self.mode1_action = QAction("View", self, triggered=self.do_mode1)
@@ -654,63 +977,25 @@ class MainWindow(QMainWindow):
         dlg.exec_()
 
     def do_color(self,mode_changed=False):
-        if 'cloud' in self.mlist:
-            self.do_vpts2 = True           
-        else:
-            self.do_vpts2 = False            
         do_color2(self,mode_changed)
         
-
-    def do_color0(self):
-        iren2 = self.vtkWidget.GetRenderWindow().GetInteractor()
-
-        if not hasattr(self,"vpts"):
-            print("no data")
-            return
-
-        map0 = self.vpts.map0
-        dfm = self.df_info.loc[map0,:]
-
-        dlg = MRad(self,list(dfm.columns))
-        dlg.setWindowTitle("HELLO!")
-        dlg.exec_()
+    def do_sparsity(self):
+        sparsity(self)
         
-
-        m = self.m
-        colors = dfm.loc[:,m].values
-
-        cmap = mpl.cm.get_cmap('jet')
-
-        vmin = 0.0
-        vmax = np.amax(colors)
-
-        self.c0.cbar(vmin,vmax)
-        self.c0.cb.set_label(m)
-        self.c0.draw()
-
-        colors = colors/np.amax(colors)
-
-        colors8 = cmap(colors,bytes=True)
-
-        scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
-
-        #this works
-        self.vpts.p_data.GetPointData().RemoveArray('col8')
-
-        scol8.SetName('col8')
-        self.vpts.p_data.GetPointData().AddArray(scol8)
-
-        #ok this works, can add and remove actors at will
-        #test
-        self.ren.RemoveActor(self.vpts2.actor)
-
-        self.vtkWidget.GetRenderWindow().Render()
+    def do_critical(self):
+        critical(self)
 
 
-    def cell_info(self,cell):
-        info = ["cell",str(cell)]
 
-        markers = self.df_info.columns        
+    def cell_info(self,cell,proj):
+        info = ["cell",proj,str(cell)]
+
+        vpts = self.vpoints_dict[proj]
+
+        df_info = vpts.df_info
+
+        #markers = self.df_info.columns
+        markers = df_info.columns        
         #marker name lengths
         mlens = [len(x) for x in markers]
         mw = "%"+str(max(mlens)+1)+"s"
@@ -723,7 +1008,8 @@ class MainWindow(QMainWindow):
         shead = mw % "marker" + " " + sw % "value"
 
         info.append(shead)
-        cell_data = self.df_info.loc[cell,:].values
+        #cell_data = self.df_info.loc[cell,:].values
+        cell_data = df_info.loc[cell,:].values
         
         for i,m in enumerate(markers):
             cd = cell_data[i]
@@ -737,8 +1023,30 @@ class MainWindow(QMainWindow):
         self.txt.setPlainText(qstr)
 
 
+    def get_transform(self):
+        tfile = QFileDialog.getOpenFileName(self, "Tranform File")
+        tfile = tfile[0]
+        df_uut = pd.read_csv(tfile)
+
+        self.df_uut = df_uut
+
     def open_project(self):
-        pdir = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+        #pdir = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+        dlg = QFileDialog()
+        dlg.setFileMode(QFileDialog.Directory)
+
+        #The native mode dialog has problems
+        dlg.setOption(QFileDialog.DontUseNativeDialog)
+        #dlg.DontUseNativeDialog()
+
+        if dlg.exec_():
+            plist = dlg.selectedFiles()
+
+            
+        #pdir = str(dlg.getExistingDirectory(None, "Select Directory"))
+        pdir = plist[0]
+        dlg.close()
+        del dlg
 
         if pdir == "" or pdir == None: return
 
@@ -751,19 +1059,22 @@ class MainWindow(QMainWindow):
         else:
             self.csk = csk
 
-        dset(csk,self)
+        self.vpts = dset(csk,self)
+
+        self.vpoints_list.append(self.vpts)
+        self.vpoints_dict[pdir] = self.vpts
 
         qstr = pdir
         self.txt.setPlainText(qstr)
-        
-        self.iren = self.vtkWidget.GetRenderWindow().GetInteractor()
+
         self.ren.RemoveAllViewProps()
         self.ren.SetBackground(.8,.8,.8)
-
-
         
-        self.use_data(self.vpts)
+        #self.use_data(self.vpts)
+        #self.use_data()
+        self.use_data2()
 
+        #need to render
         self.vtkWidget.GetRenderWindow().Render()                
 
         #ok this solved the view scaling problem
@@ -772,43 +1083,21 @@ class MainWindow(QMainWindow):
         #this solved the problem of not displaying
         #until window click
         self.vtkWidget.update()
-
-
-
-    def use_data(self,vpts=None):
-        self.vpts = vpts
-
-        vpts2 = self.vpts2
-
-        npnts2 = vpts2.data.shape[0]
-
-        colors8 = np.full( (npnts2,4),255,dtype=np.uint8)
-        colors8[:,3] = 32
-        scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
-
-
-        vpts2.p_data.GetPointData().RemoveArray('col8')
-        scol8.SetName('col8')
-        vpts2.p_data.GetPointData().AddArray(scol8)
         
 
-        self.ren.AddActor(vpts.actor)
-
-
-        self.ren.AddActor(vpts2.actor)
-
-        self.vpts2_actor = True
-        
-        self.ren.AddActor(vpts.line_actor)
-        style = InteractorStyle(vpts,self)
+    def use_data2(self,vpts=None):
+        for proj in self.vpoints_dict:
+            vpts = self.vpoints_dict[proj]
+            self.ren.AddActor(vpts.actor)
+            self.ren.AddActor(vpts.line_actor)
+        style = InteractorStyle(self.vpoints_dict,self)
 
         style.SetDefaultRenderer(self.ren)
         self.iren.SetInteractorStyle(style)
-        
+
         #this is necessary
         self.iren.Start()
-
-
+        
 def write_x(x,fname):
     f = open(fname,"w")
 
@@ -828,112 +1117,75 @@ def read_x(fname):
     x = ast.literal_eval(x)
 
     return x
-        
+
 
 def dset(csk,mwin):
 
     pcells = list(csk.br_adj.keys())
     map0,rmap0 = mk_maps(csk.df_avg,pcells)
-
     ncells = len(map0)
-
     tcols = csk.traj_markers
     
     tdata0 = csk.df_avg.loc[pcells,tcols].values
     n = tdata0.shape
 
-    pca = csk1.pca_coords(tdata0)
-    ux,urad = pca.get_coords(tdata0-pca.mu)
+    if hasattr(mwin,"df_uut"):
+        df_uut = mwin.df_uut
+    else:
+        #make df_uut from project trajectory
+        df_uut = mk_transform(csk)
+        mwin.df_uut = df_uut
 
-    print("urad",urad)
+    Xuut = df_uut.values
+    uu = Xuut[:-1].T
+    mu = Xuut[-1]
 
+    ux5 = (tdata0 - mu) @ uu
+    
+    ux5 = ux5[:,:3]
+    un5 = la.norm(ux5,axis=1)
+    urad5 = np.amax(un5)
+
+    ux,urad = ux5,urad5
     scale = 5.0/urad
 
-    #data = ux[:,:3]
     #do scaling based on urad
     data = ux[:,:3]*scale
-    
 
     hdata = ["pca00","pca01","pca02"]
     df_data = pd.DataFrame(data,columns=hdata,index=map0)
 
     br_adj = csk.br_adj
 
+    #correct values
     r0 = .12
 
     npnts = data.shape[0]        
     rscale = np.full(npnts,r0)
 
-    vpts = vpoints(data,rscale)
+    ivpnts = len(mwin.vpoints_list)
+
+    vpts = vpoints(data,rscale,src=mwin.src_list[ivpnts % 2],csk=csk)
     points = vpts.points
 
     vpts.add_lines(br_adj,rmap0,r0)
 
     vpts.map0 = map0
+    vpts.rmap0 = rmap0
+
     print("map0 set")    
     vpts.r0 = r0
 
 
-    mwin.df_info = csk.df_avg
-    mwin.vpts = vpts
+    #mwin.df_info = csk.df_avg
+    #mwin.vpts = vpts
+    vpts.df_info = csk.df_avg
 
-    #add some more points
-
-    skip = 1
-    mwin.skip = skip
-    tdata2 = csk.df.loc[::skip,tcols].values
-
-    mwin.df_skip = csk.df.loc[::skip,:]
-
-    ux2,urad2 = pca.get_coords(tdata2-pca.mu)
-
-    print("ux2",ux2.shape)
-
-    ux2 = ux2 * scale
-    rscale2 = np.full(ux2.shape[0],.1)
-    vpts2 = vpoints(ux2[:,:3],rscale2)
-
-    mwin.vpts2 = vpts2
-    
+    return vpts
 
 
-def dset2(csk,mwin):
-
-    pcells = list(csk.br_adj.keys())
-    map0,rmap0 = mk_maps(csk.df_avg,pcells)
-
-    ncells = len(map0)
-
-    tcols = csk.traj_markers
-    
-    tdata0 = csk.df_avg.loc[pcells,tcols].values
-    n = tdata0.shape
-
-    pca = csk1.pca_coords(tdata0)
-    ux,urad = pca.get_coords(tdata0-pca.mu)
-    data = ux[:,:3]
-
-    hdata = ["pca00","pca01","pca02"]
-    df_data = pd.DataFrame(data,columns=hdata,index=map0)
-
-    br_adj = csk.br_adj
-
-    r0 = .12
-
-    npnts = data.shape[0]        
-    rscale = np.full(npnts,r0)
-
-    vpts = vpoints(data,rscale)
-    points = vpts.points
-
-    vpts.add_lines(br_adj,rmap0,r0)
-
-    vpts.map0 = map0
-    vpts.r0 = r0
 
 
-    mwin.df_info = csk.df_avg
-    mwin.vpts = vpts
 
 
     

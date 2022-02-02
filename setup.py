@@ -23,6 +23,6 @@ author='john valainis',
 author_email='j.valainis@gmail.com',
 license='GPL',
 packages=['cytoskel1'],
-scripts=['tview1.py','cview1.py'],
+scripts=['tview1.py','cview1.py', 'vpara.py'],
 install_requires=install_requires,
 zip_safe=False)
