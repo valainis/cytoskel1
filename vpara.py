@@ -4,6 +4,8 @@ import vtk
 import numpy as np
 import time
 
+import os
+
 import ast
 from sortedcontainers import SortedDict
 
@@ -1147,6 +1149,17 @@ def dset(csk,mwin):
     urad5 = np.amax(un5)
 
     ux,urad = ux5,urad5
+
+    if os.path.exists(csk.project_dir+"df_display_coords.csv"):
+        df_display_coords = pd.read_csv(csk.project_dir+"df_display_coords.csv")
+        print(csk.project_dir+"df_display_coords.csv")
+
+        ux = df_display_coords.values[pcells,:3]
+
+        unorms = la.norm(ux,axis=1)
+        urad = np.amax(unorms)
+        
+        
     scale = 5.0/urad
 
     #do scaling based on urad
