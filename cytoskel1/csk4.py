@@ -102,6 +102,61 @@ def tumap_plot(X,segs,df,clist,skip=1,nrow=1,ncol=1):
     plt.show()
 
 
+def mk_submatrix(V,A):
+    #A should be a csr_matrix
+    B = A[V,:]
+    B = B.T
+    B = B[V,:]
+    #get the orignal vertex numbers
+    B = B.tocoo()
+    e0 = V[B.row]
+    e1 = V[B.col]
+    #make the submatrix with the original vertex numbers
+    #transpose to restore original directions for directed case
+    S = sp.coo_matrix( (B.data, (e0,e1)) , shape=A.shape).T
+    S = S.tocsr()
+    return S
+    
+
+def branch_csr(paths,N):
+    #each path is SortedDict distance
+    #along path as key and cell as value
+
+    e0_tot = []
+    e1_tot = []
+    sdata_tot = []
+
+    #or make directed first???
+
+    #instead of using lists we could just add the individual sparse matrices
+    #for each path
+
+    for path in paths:
+        pnodes = np.array( list(path.values()) ,dtype=int)
+        
+        e0 = pnodes[:-1]
+        e1 = pnodes[1:]
+
+        spath = np.array( list(path.keys()) )
+        sdata = spath[1:] - spath[:-1]
+
+        e0_sym = np.concatenate( (e0,e1),dtype=int)
+        e1_sym = np.concatenate( (e1,e0),dtype=int)
+        sdata_sym = np.concatenate( (sdata,sdata))
+
+        e0_tot.append(e0_sym)
+        e1_tot.append(e1_sym)
+        sdata_tot.append(sdata_sym)
+
+    e0_tot = np.concatenate(e0_tot)
+    e1_tot = np.concatenate(e1_tot)
+    sdata_tot = np.concatenate(sdata_tot)
+
+    coo_br = sp.coo_matrix( (sdata_tot,(e0_tot,e1_tot)), shape=(N,N) )
+    csr_br = coo_br.tocsr()
+                              
+    return csr_br
+
 
 
 def all_edges(N1):
@@ -715,8 +770,6 @@ class cytoskel:
         project_dir = self.project_dir
         dir_name = self.project_dir
 
-        df.loc[:,'rindex'] = np.arange(df.shape[0])+1        
-
         if not os.path.exists(project_dir):
             os.mkdir(project_dir)
 
@@ -807,6 +860,9 @@ class cytoskel:
         if is_nn:
             self.csr_nn = sp.load_npz(self.project_dir+"nn.npz")
 
+        if os.path.exists(project_dir+"csr_br.npz"):
+            self.csr_br = sp.load_npz(self.project_dir+"csr_br.npz")                    
+
         if is_setup:
             gi = get_info(project_dir+"run.setup")
             gi.get_marker_usage()
@@ -827,11 +883,6 @@ class cytoskel:
         self.markers = list(self.df.columns)
         self.df_avg = pd.read_csv(project_dir+"avg_mdata.csv")
 
-        if not ('rindex' in self.df.columns):
-            print("NO rindex, adding")
-            self.df.loc[:,'rindex'] = np.arange(self.df.shape[0])+1
-            self.df_avg.loc[:,'rindex'] = np.arange(self.df.shape[0])+1           
-            print("added rindex")
 
         markers = list(self.df.columns)
 
@@ -869,6 +920,10 @@ class cytoskel:
             self.br_adj = None
             self.cg = None
 
+
+        if os.path.exists(project_dir+"df_mds2.csv"):
+            self.df_mds2 = pd.read_csv(project_dir+"df_mds2.csv",index_col=0)
+            
         return True
 
 
@@ -1183,6 +1238,9 @@ class cytoskel:
         self.csr_nn = mst0.csr_nn
 
 
+        
+
+
     def do_branches(self,start,branchings=4):
 
         start = int(start)
@@ -1194,6 +1252,10 @@ class cytoskel:
 
         paths = find_branches(self.mst_adj,self.mst_dist,branchings,start)
 
+        self.paths = paths
+
+        self.csr_br = branch_csr(paths,self.df.shape[0])
+
         self.br_adj = branch_adj2(paths)
 
         cg = cgraph()
@@ -1202,6 +1264,7 @@ class cytoskel:
         self.dump_cg()
 
         write_sub_adj(self.br_adj,self.project_dir+"br.adj")
+        sp.save_npz(self.project_dir+"csr_br.npz",self.csr_br)        
 
 
     def get_average_fix(self,avg_markers,fixed=[],navg=5,ntree=4,sfile=None):

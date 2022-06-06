@@ -361,6 +361,15 @@ class mds_tree:
         self.mds= mds
 
 
+    def write_mds2_coords(self):
+        mds = self.mds
+        df_mds2 = pd.DataFrame(mds.ux2,columns=["mds1","mds2"],index=mds.map0)
+        df_mds2.to_csv(self.csk.project_dir + "df_mds2.csv")
+        self.csk.df_mds2 = df_mds2
+
+        
+
+
     def plot(self,clist,nrow,ncol):
         nrow = int(nrow); ncol = int(ncol)
         tedges = get_edges(self.br_adj)
