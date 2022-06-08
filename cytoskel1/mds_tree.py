@@ -22,6 +22,66 @@ from sklearn import manifold
 from sklearn.manifold import smacof
 
 from .tmap import ux_init2
+from .gu import critical0
+
+
+def ax_plot0(fig,ax,ux2,df_avg,segs,e0,e1,map0,splot=True):
+    #df_avg is now a Series
+
+    #cmap0 = mpl.cm.jet
+    cmap0 = mpl.cm.inferno    
+    #cmap0 = mpl.cm.tab20
+
+    if not splot:
+
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])        
+        ax.spines['left'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        return
+
+    m = df_avg.name
+    #color = df_avg.loc[map0,m].values
+    color = df_avg.loc[map0].values
+
+    vmax = np.amax(color)
+    vmin = np.amin(color)
+    dv = vmax - vmin
+    ecolor0 = color[e0]
+    ecolor1 = color[e1]
+    ecolor = .5*(ecolor0 + ecolor1)
+
+    ecolor = (ecolor-vmin)/dv
+
+    #pnts = ax.scatter(ux2[:,0],ux2[:,1],s=15,c=color,cmap=mpl.cm.jet,vmin=0.0)
+    #pnts = ax.scatter(ux2[:,0],ux2[:,1],s=15,c=color,cmap=mpl.cm.inferno,vmin=0.0)
+    pnts = ax.scatter(ux2[:,0],ux2[:,1],s=15,c=color,cmap=cmap0,vmin=vmin,vmax=vmax)
+
+    #rgba = mpl.cm.jet(ecolor)
+    rgba = cmap0(ecolor)
+    #rgba = mpl.cm.inferno(ecolor)
+
+    seg_col = mc.LineCollection(segs,color=rgba)
+    #seg_col = mc.LineCollection(segs)
+    fig.colorbar(pnts,ax=ax)
+    ax.add_collection(seg_col)
+    ax.set_xlabel(m)
+
+    #ax.axis('equal')
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_xticks([])
+    ax.set_yticks([])        
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+
+
 
 def add_arch(A,B):
     #find point in A with furthest sum from B points
@@ -213,6 +273,31 @@ class mdsxx:
         plt.tight_layout()
         plt.show()
 
+    def plot1(self,df_col,save=False):
+
+        ux2 = self.ux2
+        segs = self.segs
+        e0 = self.e0
+        e1 = self.e1
+
+        map0 = self.map0
+
+        fac = 1.0
+        w = fac*8
+        h = fac*7
+
+        fig,ax = plt.subplots(figsize=(13,9.5))
+
+
+        ax_plot0(fig,ax,ux2,df_col,segs,e0,e1,map0)
+
+        plt.tight_layout()
+        if save:
+            plt.savefig("save_"+df_col.name+".pdf",format="pdf")
+        else:
+            plt.show()
+        
+
 def cpoints0(csk):
     br_adj = csk.cg.br_adj
 
@@ -312,10 +397,12 @@ class mds_tree:
 
     def mk_tree(self,seed=137,level=1,xfac=1.0):
         df_seg0 = self.df_avg.loc[:,self.traj_markers]
-        crit_segs1 = copy.deepcopy(self.crit_segs0)
-        for i in range(level):
-            crit_segs1 = add_critical(df_seg0,crit_segs1)
-        #crit_segs1 = self.crit_segs0
+
+        crit0 = critical0(self.csk,level)
+        crit_segs1 = crit0.crit_segs1
+        self.crit_segs1 = crit_segs1
+        self.crit0 = crit0
+       
 
         crit_edges = list(crit_segs1.keys())
         crit_edges = np.array(crit_edges,dtype=int)
@@ -359,6 +446,9 @@ class mds_tree:
         mds = mdsxx(self.df_avg,df_seg0,self.tree_cells,tedges,init=ux4_0,xfac=xfac)
 
         self.mds= mds
+
+        #save the mds coordinates
+        self.write_mds2_coords()
 
 
     def write_mds2_coords(self):
