@@ -23,10 +23,33 @@ from sklearn.manifold import smacof
 
 from .tmap import ux_init2
 from .gu import critical0
+from .csk4 import mk_submatrix
+
+
+def csr_edges(csr):
+    coo = csr.tocoo()
+    e0 = coo.row
+    e1 = coo.col
+
+    edges = np.array([e0,e1],dtype=int).T
+
+    return edges,e0,e1
+
+
+def mk_rmap0(N,pcells):
+    #N is the size of the full cell set
+
+    npcells = len(pcells)
+    idx0 = np.arange(npcells)
+    rmap0 = np.full((N,),-1,dtype=np.int)
+    rmap0[pcells] = idx0
+
+    return rmap0
 
 
 def ax_plot0(fig,ax,ux2,df_avg,segs,e0,e1,map0,splot=True):
     #df_avg is now a Series
+    #splot True means normal, False means blank out everything
 
     #cmap0 = mpl.cm.jet
     cmap0 = mpl.cm.inferno    
@@ -81,6 +104,64 @@ def ax_plot0(fig,ax,ux2,df_avg,segs,e0,e1,map0,splot=True):
     ax.spines['bottom'].set_visible(False)
     ax.spines['top'].set_visible(False)
 
+def ax_dplot0(fig,ax,ux2,df_col,segs,e0,e1,map0,dcolor=None):
+    #df_col is now a Series
+
+    cmap0 = mpl.cm.inferno    
+    m = df_col.name    
+
+    xcol = df_col.values
+
+    scol = list(set(xcol))
+    scol.sort()
+
+    print(scol)
+
+    #dcolor = ['r','tab:orange','k','g','b','m','y']
+
+    dcolor = ['r','y','g','b','m','k','c']
+    
+
+    #color = df_col.loc[map0,m].values
+    color0 = df_col.loc[map0].values
+
+    #ux2 marker cluster designnation
+
+    """
+    color = []
+
+    for cx in color0:
+        color.append(dcolor[cx])
+    """
+    marks = ['o','v','^','<','>','s']
+
+    for s in scol:
+        sel = color0 == s
+        nsel = np.sum(sel)
+        print("cluster",s,nsel)
+        if nsel > 0:
+            ux_sel = ux2[sel]
+            pnts = ax.scatter(ux_sel[:,0],ux_sel[:,1],s=30,c=dcolor[s % 7],label="cluster " + str(s),marker=marks[s % 6])
+
+
+    seg_col = mc.LineCollection(segs,color='k',alpha=.3)
+
+    #fig.colorbar(pnts,ax=ax)
+    ax.add_collection(seg_col)
+    ax.set_xlabel(m)
+
+    #ax.legend(loc='upper right',bbox_to_anchor=(1.1, 1.05))
+    ax.legend(loc='upper right',bbox_to_anchor=(1.1, 1.0))              
+
+    #ax.axis('equal')
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_xticks([])
+    ax.set_yticks([])        
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['top'].set_visible(False)
 
 
 def add_arch(A,B):
@@ -296,7 +377,236 @@ class mdsxx:
             plt.savefig("save_"+df_col.name+".pdf",format="pdf")
         else:
             plt.show()
+
+
+class mds2_plot:
+    def __init__(self,csk):
+        if not hasattr(csk,'df_mds2'):
+            print('cytoskel object has no attribute df_mds2')
+            print('run mds_tree.mk_tree')
+            exit()
+
+        self.csk = csk
+
+        if hasattr(csk,'csr_br'):
+            self.csr_br = csk.csr_br
+
+        self.ux2 = csk.df_mds2.values
+        self.br_adj = csk.br_adj
+        edges = get_edges(self.br_adj)        
         
+        self.tree_cells = np.array( list( self.br_adj.keys() ), dtype=int)
+        
+
+        map0,rmap0 = mk_maps(csk.df_avg,self.tree_cells)
+        self.map0 = map0 #same as tree_cells
+        self.rmap0 = rmap0
+        edges_0 = rmap0[edges]
+
+        self.e0 = edges_0[:,0]
+        self.e1 = edges_0[:,1]
+
+        segs = self.ux2[edges_0]
+        segs0 = np.mean(segs,axis=1,keepdims=True)
+        dsegs = segs - segs0
+        segs = .95*dsegs + segs0
+        self.segs = segs
+
+
+    def subgraph(self,keep):
+        """
+        #construct what is needed for plotting a subgraph
+        #of the branch graph
+        #results used by kplot1
+        """
+
+        self.keep = keep
+        csr_br2 = mk_submatrix(keep,self.csk.csr_br)
+
+        #the ux2 indices of the keep cells
+        keep_0 = self.rmap0[keep]
+
+        kpnts = self.ux2[keep_0]
+        self.kpnts = kpnts
+
+        kedges,ke0,ke1 = csr_edges(csr_br2)        
+
+
+
+        krmap0 = mk_rmap0(self.rmap0.shape[0],keep)
+        kedges_0 = krmap0[kedges]
+        self.kedges_0 = kedges_0
+
+        ksegs = kpnts[kedges_0]
+        segs0 = np.mean(ksegs,axis=1,keepdims=True)
+        dsegs = ksegs - segs0
+        ksegs = .95*dsegs + segs0
+
+        self.ksegs = ksegs
+        
+
+        
+    def plot1(self,df_col,save=False,crit_pnts=None,xfig=13,yfig=9.5):
+
+        ux2 = self.ux2
+        segs = self.segs
+        e0 = self.e0
+        e1 = self.e1
+
+        map0 = self.map0
+
+        fig,ax = plt.subplots(figsize=(xfig,yfig))
+
+        ax_plot0(fig,ax,ux2,df_col,segs,e0,e1,map0)
+
+        if crit_pnts:
+            xcrit = ux2[self.rmap0[crit_pnts]]
+            print(xcrit)
+
+            ax.scatter(xcrit[:,0],xcrit[:,1],c='m',s=80)
+
+        plt.tight_layout()
+        if save:
+            plt.savefig("save_"+df_col.name+".pdf",format="pdf")
+        else:
+            plt.show()
+
+
+    def kplot1(self,df_col,save=""):
+        """
+        plot df_col , one marker
+        uses results of subgraph to plot the subgraph
+        but using the full mds2 coordinates
+        """
+
+        ux2 = self.kpnts
+        segs = self.ksegs
+
+        e0 = self.kedges_0[:,0]
+        e1 = self.kedges_0[:,0]
+
+        map0 = self.keep
+
+        fac = 1.0
+        w = fac*8
+        h = fac*7
+
+        fig,ax = plt.subplots(figsize=(13,9.5))
+
+
+        ax_plot0(fig,ax,ux2,df_col,segs,e0,e1,map0)
+
+        plt.tight_layout()
+        if save:
+            plt.savefig(save+df_col.name+".pdf",format="pdf")
+        else:
+            plt.show()
+
+
+    def plot0(self,nrow,ncol,clist,df_avg):
+        """
+        plot markers in clist using
+        values in df_avg
+        """
+
+        ux2 = self.ux2
+        br_adj = self.br_adj
+        edges = get_edges(br_adj)
+        N = df_avg.shape[0]
+
+        segs = self.segs
+
+        e0 = self.e0
+        e1 = self.e1   
+
+        pfac = 2.8
+
+        ww = pfac*ncol
+        hh = pfac*nrow
+
+        fig,axes = plt.subplots(nrow,ncol,figsize=(ww,hh))
+        axes = axes.flatten()
+
+        for i,ax in enumerate(axes):
+
+            if i >= len(clist):
+
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+                ax.set_xticks([])
+                ax.set_yticks([])        
+                ax.spines['left'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['bottom'].set_visible(False)
+                ax.spines['top'].set_visible(False)
+                continue
+
+            color = df_avg.loc[self.map0,clist[i]].values
+            vmax = np.amax(color)
+            ecolor0 = color[e0]
+            ecolor1 = color[e1]
+            ecolor = .5*(ecolor0 + ecolor1)
+
+            ecolor = ecolor/vmax
+
+            pnts = ax.scatter(ux2[:,0],ux2[:,1],s=15,c=color,cmap=mpl.cm.jet,vmin=0.0)
+
+            rgba = mpl.cm.jet(ecolor)
+
+            seg_col = mc.LineCollection(segs,color=rgba)
+            #seg_col = mc.LineCollection(segs)
+            fig.colorbar(pnts,ax=ax)
+            ax.add_collection(seg_col)
+            ax.set_xlabel(clist[i])
+
+            #ax.axis('equal')
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            ax.set_xticks([])
+            ax.set_yticks([])        
+            ax.spines['left'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+
+        #plt.savefig("markers1.pdf",format='pdf',bbox_inches='tight')
+        #plt.savefig("receptors_homing.pdf",format='pdf',bbox_inches='tight')
+        plt.tight_layout()
+        plt.show()
+
+    def cat_plot1(self,df_col,save=""):
+        """
+        #df_col has a set of integer values
+        mds plot of categorical values
+        """
+
+        ux2 = self.ux2
+        segs = self.segs
+        e0 = self.e0
+        e1 = self.e1
+
+
+        map0 = self.map0
+
+        fac = 1.0
+        w = fac*8
+        h = fac*7
+
+
+        fig,ax = plt.subplots(figsize=(13,9.5))
+
+
+        ax_dplot0(fig,ax,ux2,df_col,segs,e0,e1,map0)
+
+        plt.tight_layout()
+        if save:
+            plt.savefig("save_"+df_col.name+".pdf",format="pdf")
+        else:
+            plt.show()
+            
+            
+
+
 
 def cpoints0(csk):
     br_adj = csk.cg.br_adj
