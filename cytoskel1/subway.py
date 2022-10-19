@@ -244,8 +244,10 @@ class subway:
         for v in vpos:
             #following line puts in vertex numbers
             #txt = axplot.text(vpos[v][0]-.7*gap,vpos[v][1]-.1,str(v),rotation=90,fontsize=4,verticalalignment='center')
+            #vfont = 6
+            vfont = 9
             txt = axplot.text(vpos[v][0]-.7*gap,vpos[v][1],str(v),
-                              rotation=90,fontsize=6,verticalalignment='center',horizontalalignment='center')
+                              rotation=90,fontsize=vfont,verticalalignment='center',horizontalalignment='center')
             vtext[v] = np.array((vpos[v][0]-.7*gap,vpos[v][1]-.1))
 
 

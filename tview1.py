@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 
 import vtk
 import numpy as np
@@ -66,6 +67,8 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         #this gives window coords, lower left is 0,0, x is left_right
         click_pos = self.GetInteractor().GetEventPosition()
 
+        print("click type",type(click_pos))
+
         #scale = self.renderer.getDevicePixelRatioCompensation()
         #scale = 2
         #click_pos = [ p*scale for p in click_pos ]
@@ -90,6 +93,11 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
             sfac = .5
         else:
             sfac = 1.0
+
+        #it seems sfac = .5 is now always correct, is this a retina issue?
+        sfac = .5
+
+        print("sfac",sfac)
         """
         #picking can be slow with lots of points
         self.OnLeftButtonDown()
@@ -104,10 +112,10 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         input_ids = self.glyphs.GetOutput().GetPointData().GetArray("InputPointIds")
 
         if input_ids:
-            cell = self.glyphs.GetOutput().GetCell(cell_picker.GetCellId())
-            print("cell",cell)
-            if cell and cell.GetNumberOfPoints() > 0:
-                input_id = cell.GetPointId(0)
+            vtk_cell = self.glyphs.GetOutput().GetCell(cell_picker.GetCellId())
+            print("cell pick",vtk_cell)
+            if vtk_cell and vtk_cell.GetNumberOfPoints() > 0:
+                input_id = vtk_cell.GetPointId(0)
                 selected_id = input_ids.GetTuple1(input_id)
                 if selected_id >= 0:
                     highlight_sphere = vtk.vtkSphereSource() 
@@ -120,11 +128,22 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
                     print("selected",selected_id)
 
                     sid = int(selected_id)
+
+                    #cytoskel cell
                     cell = self.map0[sid]
 
                     self.pobj.cell_info(cell)
 
+                    #so sid is the cell # in br_adj - map0[sid] is full data cell number
+                    print("pobj",self.pobj.vpts.data[sid])
+
                     #self.cell_picked.emit(cell)
+
+                    xpnt = self.glyphs.GetInput().GetPoint(int(selected_id))
+
+                    print("xpnt",xpnt) #this matches pobj.vpts.data[sid]
+
+                    print("click_pos",click_pos)
 
                     highlight_sphere.SetCenter(self.glyphs.GetInput().GetPoint(int(selected_id)))                    
                     mapper = vtk.vtkPolyDataMapper()
@@ -153,12 +172,73 @@ def mk_maps(df,pcells):
 
     N = df.shape[0]
 
-    rmap0 = np.full((N,),-1,dtype=np.int)
+    rmap0 = np.full((N,),-1,dtype=int)
 
     rmap0[map0] = idx0
 
 
     return map0,rmap0
+
+
+class MRad00(QDialog):
+    def __init__(self,parent=None,markers=[],set_func=None,get_func=None):
+        super().__init__(parent)
+        p = self.parent()
+
+        self.set_func = set_func
+        self.get_func = get_func
+
+        self.markers = markers
+
+        lay = QVBoxLayout()
+
+        gbox = self.create_buttons()
+
+        lay.addWidget(gbox)
+
+        setButton = QPushButton("Apply")
+        setButton.clicked.connect(self.apply)
+        lay.addWidget(setButton)
+        
+        self.setLayout(lay)    
+
+
+    def create_buttons(self):
+        markers = self.markers
+
+        gbox = QGroupBox()
+
+        glay = QGridLayout()
+
+        radio_buttons = []
+
+        if self.get_func:
+            m0 = self.get_func()
+        else:
+            m0 = None
+        
+        for i,m in enumerate(markers):
+            cb = QRadioButton(m)
+            if m == m0:
+                cb.setChecked(True)
+            radio_buttons.append(cb)
+            glay.addWidget(cb,i,0)
+
+        gbox.setLayout(glay)
+
+        self.radio_buttons = radio_buttons
+        return gbox
+        
+    def apply(self):
+        #check the buttons for cname
+
+        m = None
+        for i,box in enumerate(self.radio_buttons):
+            if box.isChecked():
+                m = self.markers[i]
+
+        self.set_func(m)
+        self.close()
 
 
 class MRad(QDialog):
@@ -375,6 +455,9 @@ def do_radius2(mwin,vpts,rad=.12):
     mwin.vtkWidget.GetRenderWindow().Render()
 
 
+
+
+
 def do_color2(mwin,mode_changed=False):
 
     do_vpts2 = mwin.do_vpts2
@@ -394,6 +477,7 @@ def do_color2(mwin,mode_changed=False):
     if not mode_changed:
         dlg = MRad(mwin,list(dfm.columns))
         dlg.setWindowTitle("marker")
+        dlg.move(50,50)
         dlg.exec_()
 
 
@@ -436,7 +520,10 @@ def do_color2(mwin,mode_changed=False):
 
         colors8_2 = colors8_2
 
-        colors8_2[:,3] = 32
+        #this must be the alpha ?
+        #colors8_2[:,3] = 32
+        #colors8_2[:,3] = 16
+        colors8_2[:,3] = 8
         
         scol8_2 = ns.numpy_to_vtk(num_array=colors8_2, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
 
@@ -572,7 +659,8 @@ class MainWindow(QMainWindow):
         #set up text widget
         font = QFont()
 
-        font.setFamily("Courier")
+        #font.setFamily("Courier")
+        font.setFamily("Arial")
         font.setStyleHint(QFont.Monospace)
         font.setFixedPitch(True)
         font.setPointSize(16)
@@ -580,8 +668,9 @@ class MainWindow(QMainWindow):
         txt = QPlainTextEdit()
         txt.setFont(font)
         txt.setMaximumWidth(400)        
-        self.txt = txt        
-
+        self.txt = txt
+        #color: is font color
+        txt.setStyleSheet("QPlainTextEdit {background-color: #c0c0c0; color: #000000;}")
         c0 = canvas0()        
         self.c0 = c0
         
@@ -628,6 +717,9 @@ class MainWindow(QMainWindow):
         self.actionMenu = self.menuBar().addMenu("&Action")
         self.actionMenu.addAction(self.color_action)
         self.actionMenu.addAction(self.slide_action)
+        self.actionMenu.addAction(self.camera_info_action)
+        self.actionMenu.addAction(self.get_view_action)                
+        
 
         self.modeMenu = self.menuBar().addMenu("&Mode")
         self.modeMenu.addAction(self.mode1_action)
@@ -639,14 +731,144 @@ class MainWindow(QMainWindow):
         self.slide_action = QAction("Size", self, triggered=self.do_slide)
 
         self.mode1_action = QAction("View", self, triggered=self.do_mode1)
+        self.camera_info_action = QAction("Camera", self, triggered=self.camera_info)
+        self.get_view_action = QAction("Get View", self, triggered=self.get_view)
+
+    def set_view0(self,m):
+        self.view = m
+
+    def get_view0(self):
+        if hasattr(self,"mode"):
+            m0 = self.mode
+        else:
+            self.mode = None
+            m0 = None
+        return m0
+        
+
+    def get_view(self):
+        vdir = self.csk.pca_views        
+        print("hello",vdir)
+        vlist = os.listdir(vdir)
+        print(vlist)
+        
+        dlg = MRad00(self,vlist,self.set_view0)
+        dlg.setWindowTitle("Mode")
+        dlg.exec_()
+
+        vfile = self.csk.pca_views + self.view
+
+        df_cam = pd.read_csv(vfile)
+
+        df_cam.set_index(df_cam.columns[0],inplace=True)
+        V = df_cam.values
+
+        print(df_cam)
+
+        cam = self.ren.GetActiveCamera()
+
+        cam.SetPosition(df_cam.loc['pos',:])
+        cam.SetViewUp(df_cam.loc['up',:])
+        cam.SetFocalPoint(df_cam.loc['focal',:])
+
+        self.ren.ResetCamera()        
+        
+    def camera_info(self):
+        mwin = self
+
+        cam = mwin.ren.GetActiveCamera()
+        size = mwin.ren.GetRenderWindow().GetSize()
+        #tp = mwin.ren.GetProjectionTransformMatrix()
+
+        #tp = cam.GetProjectionTransformMatrix(mwin.ren)    
+
+        n,f = cam.GetClippingRange()
+        print("nf",n,f)    
+
+        aspect = size[0]/size[1]
+
+        P = cam.GetCompositeProjectionTransformMatrix( aspect, n, f )
+
+
+        cam_pos = cam.GetPosition()
+        cam_up = cam.GetViewUp()
+        cam_focal = cam.GetFocalPoint()
+        
+        print("position",cam_pos)        
+        print("viewup",cam_up)
+        print("focal",cam_focal)
+
+        head = ["pca0","pca1","pca2"]
+
+        index = ["focal","pos","up"]
+
+        data = np.array([cam_focal,cam_pos,cam_up])
+
+        df = pd.DataFrame(data,columns=head,index=index)
+
+        if hasattr(mwin,"csk"):
+
+            pdir = mwin.csk.project_dir
+
+            vdir = pdir + "pca_views/"
+
+            if not os.path.exists(vdir):
+                os.mkdir(vdir)                
+            
+
+            text, ok = QInputDialog.getText(self, 'pca view', 'view name:')
+
+            if ok:
+                df.to_csv(vdir+text)
+
+
+    def camera_info0(self):
+        #capture the initial camera state
+        mwin = self
+
+        cam = mwin.ren.GetActiveCamera()
+        size = mwin.ren.GetRenderWindow().GetSize()
+
+        n,f = cam.GetClippingRange()
+
+        cam_pos = cam.GetPosition()
+        cam_up = cam.GetViewUp()
+        cam_focal = cam.GetFocalPoint()
+
+        cam_angle = cam.GetViewAngle()
+        
+        print("position",cam_pos)        
+        print("viewup",cam_up)
+        print("focal",cam_focal)
+        print("angle",cam_angle)
+
+        head = ["pca0","pca1","pca2"]
+
+        index = ["focal","pos","up"]
+
+        data = np.array([cam_focal,cam_pos,cam_up])
+
+        df = pd.DataFrame(data,columns=head,index=index)
+
+        if hasattr(mwin,"csk"):
+
+            pdir = mwin.csk.project_dir
+            vdir = pdir + "pca_views/"
+
+            if not os.path.exists(vdir):
+                os.mkdir(vdir)                
+
+            text = "initial_view"
+
+            if not os.path.exists(vdir+text):
+                df.to_csv(vdir+text)
+                
 
     def do_mode1(self):
         mch = MCheck(self,['cloud'])
 
         #modifies self.mlist
         mch.exec_()
-
-
 
     def do_slide(self):
         dlg = MSlide(self)
@@ -769,6 +991,9 @@ class MainWindow(QMainWindow):
         #ok this solved the view scaling problem
         self.ren.ResetCamera()
 
+        #
+        self.camera_info0()
+
         #this solved the problem of not displaying
         #until window click
         self.vtkWidget.update()
@@ -840,9 +1065,15 @@ def dset(csk,mwin):
     tcols = csk.traj_markers
     
     tdata0 = csk.df_avg.loc[pcells,tcols].values
+    #tdata0 = csk.df.loc[pcells,tcols].values #to see the original trajectories
+    tdata = csk.df.loc[:,tcols].values    
     n = tdata0.shape
 
-    pca = csk1.pca_coords(tdata0)
+    print("do pca")
+
+    #use the original data to get the pca transform
+    #so that it is independent of MST etc
+    pca = csk1.pca_coords(tdata,fix=True)
     ux,urad = pca.get_coords(tdata0-pca.mu)
 
     print("urad",urad)
@@ -885,7 +1116,17 @@ def dset(csk,mwin):
 
     mwin.df_skip = csk.df.loc[::skip,:]
 
+    """
+    #try this
+    #interesting result shows potential extra branches?
+    tdata3 = csk.csr_avg @ tdata2
+
+    for i in range(4):
+        tdata3 = csk.csr_avg @ tdata3
+    ux2,urad2 = pca.get_coords(tdata3-pca.mu)
+    """
     ux2,urad2 = pca.get_coords(tdata2-pca.mu)
+
 
     print("ux2",ux2.shape)
 
@@ -897,49 +1138,10 @@ def dset(csk,mwin):
     
 
 
-def dset2(csk,mwin):
-
-    pcells = list(csk.br_adj.keys())
-    map0,rmap0 = mk_maps(csk.df_avg,pcells)
-
-    ncells = len(map0)
-
-    tcols = csk.traj_markers
-    
-    tdata0 = csk.df_avg.loc[pcells,tcols].values
-    n = tdata0.shape
-
-    pca = csk1.pca_coords(tdata0)
-    ux,urad = pca.get_coords(tdata0-pca.mu)
-    data = ux[:,:3]
-
-    hdata = ["pca00","pca01","pca02"]
-    df_data = pd.DataFrame(data,columns=hdata,index=map0)
-
-    br_adj = csk.br_adj
-
-    r0 = .12
-
-    npnts = data.shape[0]        
-    rscale = np.full(npnts,r0)
-
-    vpts = vpoints(data,rscale)
-    points = vpts.points
-
-    vpts.add_lines(br_adj,rmap0,r0)
-
-    vpts.map0 = map0
-    vpts.r0 = r0
-
-
-    mwin.df_info = csk.df_avg
-    mwin.vpts = vpts
-
-
     
 if __name__ == "__main__":
     app = QApplication([])
     window = MainWindow()
     #window.setGeometry(200,200,1000,600);
-    window.setGeometry(150,100,1500,900)
+    window.setGeometry(50,100,1500,900)
     sys.exit(app.exec_())

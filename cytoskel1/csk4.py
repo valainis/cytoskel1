@@ -836,17 +836,24 @@ class cytoskel:
         else:
             print("pca_dim error")
             exit()
-            
-            
+
+    #create an alias for create
+    setup_graph_data = create
 
 
     def open(self):
+        t0 = time.time()
         project_dir = self.project_dir
         
         if not os.path.exists(project_dir):
             print("no project directory:",project_dir)
             return False
 
+        vdir = project_dir + "pca_views/"
+        if not os.path.exists(vdir):
+            os.mkdir(vdir)
+
+        self.pca_views = vdir
 
         is_params = os.path.exists(project_dir+"params.txt")
         is_setup = os.path.exists(project_dir+"run.setup")
@@ -861,7 +868,11 @@ class cytoskel:
             self.csr_nn = sp.load_npz(self.project_dir+"nn.npz")
 
         if os.path.exists(project_dir+"csr_br.npz"):
-            self.csr_br = sp.load_npz(self.project_dir+"csr_br.npz")                    
+            self.csr_br = sp.load_npz(self.project_dir+"csr_br.npz")
+
+        if os.path.exists(project_dir+"csr_avg.npz"):
+            self.csr_avg = sp.load_npz(self.project_dir+"csr_avg.npz")                    
+            
 
         if is_setup:
             gi = get_info(project_dir+"run.setup")
@@ -881,8 +892,16 @@ class cytoskel:
 
         self.df = pd.read_csv(project_dir+"mdata.csv")
         self.markers = list(self.df.columns)
-        self.df_avg = pd.read_csv(project_dir+"avg_mdata.csv")
 
+
+        if os.path.exists(project_dir+"avg_mdata.csv"):
+            self.df_avg = pd.read_csv(project_dir+"avg_mdata.csv")
+        else:
+            print("need to run averaging")
+            self.df_avg = None
+
+        if os.path.exists(project_dir+"qmst.npz"):
+            self.csr_qmst = sp.load_npz(self.project_dir+"qmst.npz")                                
 
         markers = list(self.df.columns)
 
@@ -923,6 +942,10 @@ class cytoskel:
 
         if os.path.exists(project_dir+"df_mds2.csv"):
             self.df_mds2 = pd.read_csv(project_dir+"df_mds2.csv",index_col=0)
+
+        t1 = time.time()
+
+        print("open time",t1 - t0)
             
         return True
 
@@ -1241,7 +1264,7 @@ class cytoskel:
         
 
 
-    def do_branches(self,start,branchings=4):
+    def do_branches(self,start=-1,branchings=4):
 
         start = int(start)
         branchings = int(branchings)
@@ -1267,7 +1290,7 @@ class cytoskel:
         sp.save_npz(self.project_dir+"csr_br.npz",self.csr_br)        
 
 
-    def get_average_fix(self,avg_markers,fixed=[],navg=5,ntree=4,sfile=None):
+    def get_average_fix(self,avg_markers,fixed=[],navg=5,ntree=4,n_radius = -1, sfile=None):
         #note: radius is ntree+1
 
         self.write_x(avg_markers,"ahead.txt")
@@ -1283,8 +1306,6 @@ class cytoskel:
         navg = int(navg)
         ntree = int(ntree)
 
-        print("navg",navg,"ntree",ntree)
-
         if hasattr(self,'params'):
             self.params['navg'] = navg
             self.params['ntree'] = ntree
@@ -1293,7 +1314,9 @@ class cytoskel:
         t0 = time.time()            
 
         csr_mst = self.csr_mst
-        tot = nn_from_tree_2(csr_mst,ntree+1)
+
+        if n_radius == -1: n_radius = ntree + 1
+        tot = nn_from_tree_2(csr_mst,n_radius)
         tot = tot.tolil()
         tot.setdiag(0)
 
@@ -1322,7 +1345,12 @@ class cytoskel:
         tot2 = tot2.tocsr()
         tot2 = tot2 @ dk
 
-        self.mst_nn_adj = tot.rows
+        #add averaging matrix to the csk object
+        self.csr_avg = tot2
+
+        sp.save_npz(self.project_dir+"csr_avg.npz",self.csr_avg)
+
+        #self.mst_nn_adj = tot.rows #this seems not to be used for anything
 
         df2 = self.df.copy()
         df_avg = df2[avg_markers]
@@ -1358,6 +1386,8 @@ class cytoskel:
 
         t1 = time.time()     
         self.add_log("average "+ str(t1-t0))
+
+    do_mst_averaging = get_average_fix #set an alias with a better name
 
     def link(self,gcol,k_intra=10,k_inter=1,
                  glist = [],
@@ -2175,3 +2205,6 @@ class tree_dist:
         self.br_map = br_map
 
         return paths,seg_branches
+
+
+

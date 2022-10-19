@@ -447,7 +447,7 @@ def write_setup(sname,
 
 
 class pca_coords:
-    def __init__(self,vecs,cdim=-1):
+    def __init__(self,vecs,cdim=-1,fix=False):
         """
         the pca eigenvectors and eigenvalues
         cdim is how many pca coords to use
@@ -470,7 +470,9 @@ class pca_coords:
         evecs = evecs[:,::-1]
 
         self.evecs = evecs
-        self.evals = evals        
+        self.evals = evals
+
+        if fix: self.fix_evecs()
 
         uu = []
 
@@ -501,14 +503,15 @@ class pca_coords:
         return ucoord, urad
 
     def fix_evecs(self):
+        #change signs so all projections on mu are +
         n = self.evecs.shape[1]
         for i in range(n):
             evec = self.evecs[:,i]
             sgn = evec @ self.mu
             if sgn < 0.0:
                 self.evecs[:,i] *= -1.0
-            sgn = evec @ self.mu                
-            print("sgn",i,sgn)
+            #sgn = evec @ self.mu                
+            #print("sgn",i,sgn)
 
     def project(self,vecs0,nlim):
         P = self.uu[:,:nlim]

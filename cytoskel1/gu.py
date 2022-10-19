@@ -1316,6 +1316,47 @@ def gray_plot(df_colors,ux2,segs,tedges0,nrow,ncol,clist,xcrit,crit_points0):
     plt.tight_layout()
     plt.show()
 
+def crit_plot(X,segs,ilist,nlist):
+    #originally from tsg/zcrit_basa1_0.py
+    tvecs = X.T
+
+
+    acolors = ['r','g','b','c','tab:blue', 'tab:brown','m','y', 'k','tab:orange']
+
+    #markers = ["." , "," , "o" , "v" , "^" , "<", ">"]    
+    markers = ["o" , "v" , "^" , "<", ">"]
+
+    mtypes = list(product(markers,acolors))
+
+    fig,ax = plt.subplots(figsize=(9,9))
+
+    ax.scatter(tvecs[0,:],tvecs[1,:],c='darkgrey',s=10)  
+
+    for i,name in enumerate(nlist):
+        print("name",name)
+        ii = ilist[i]
+        mtyp = mtypes[i]
+        ax.scatter(tvecs[0,ii],tvecs[1,ii],edgecolor=mtyp[1],marker=mtyp[0],facecolor='none',s=80,label=name)
+        print(mtyp[0])
+        #ax.scatter(tvecs[0,csel],tvecs[1,csel],facecolors='none',edgecolors=acolors[i],s=20,label=scol)
+
+    #ax.set_xlabel(m,fontsize=16,fontweight='bold')
+    ax.axis('equal')
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_xticks([])
+    ax.set_yticks([])        
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['top'].set_visible(False)                
+
+    seg_coll = mc.LineCollection(segs,color='k',alpha=.7)
+    ax.add_collection(seg_coll)
+
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
 
 
 

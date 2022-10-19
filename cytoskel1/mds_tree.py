@@ -47,12 +47,12 @@ def mk_rmap0(N,pcells):
     return rmap0
 
 
-def ax_plot0(fig,ax,ux2,df_avg,segs,e0,e1,map0,splot=True):
+def ax_plot0(fig,ax,ux2,df_avg,segs,e0,e1,map0,splot=True,name=None):
     #df_avg is now a Series
     #splot True means normal, False means blank out everything
 
-    #cmap0 = mpl.cm.jet
-    cmap0 = mpl.cm.inferno    
+    cmap0 = mpl.cm.jet
+    #cmap0 = mpl.cm.inferno    
     #cmap0 = mpl.cm.tab20
 
     if not splot:
@@ -90,7 +90,10 @@ def ax_plot0(fig,ax,ux2,df_avg,segs,e0,e1,map0,splot=True):
 
     seg_col = mc.LineCollection(segs,color=rgba)
     #seg_col = mc.LineCollection(segs)
-    fig.colorbar(pnts,ax=ax)
+    if name:
+        fig.colorbar(pnts,ax=ax,label=name)
+    else:
+        fig.colorbar(pnts,ax=ax)
     ax.add_collection(seg_col)
     ax.set_xlabel(m)
 
@@ -380,18 +383,21 @@ class mdsxx:
 
 
 class mds2_plot:
-    def __init__(self,csk):
+    def __init__(self,csk,xfac=1.0,yfac=1.0,fig_file=None):
         if not hasattr(csk,'df_mds2'):
             print('cytoskel object has no attribute df_mds2')
             print('run mds_tree.mk_tree')
             exit()
 
+        self.fig_file = fig_file
         self.csk = csk
 
         if hasattr(csk,'csr_br'):
             self.csr_br = csk.csr_br
 
         self.ux2 = csk.df_mds2.values
+        self.ux2[:,0] *= xfac
+        self.ux2[:,1] *= yfac        
         self.br_adj = csk.br_adj
         edges = get_edges(self.br_adj)        
         
@@ -457,7 +463,7 @@ class mds2_plot:
 
         fig,ax = plt.subplots(figsize=(xfig,yfig))
 
-        ax_plot0(fig,ax,ux2,df_col,segs,e0,e1,map0)
+        ax_plot0(fig,ax,ux2,df_col,segs,e0,e1,map0,name=df_col.name)
 
         if crit_pnts:
             xcrit = ux2[self.rmap0[crit_pnts]]
@@ -503,11 +509,13 @@ class mds2_plot:
             plt.show()
 
 
-    def plot0(self,nrow,ncol,clist,df_avg):
+    def plot0(self,nrow,ncol,clist,df_avg,pfac=4.0):
         """
         plot markers in clist using
         values in df_avg
         """
+
+        print("mds2_plot plot0")
 
         ux2 = self.ux2
         br_adj = self.br_adj
@@ -519,7 +527,8 @@ class mds2_plot:
         e0 = self.e0
         e1 = self.e1   
 
-        pfac = 2.8
+        #pfac = 2.8
+        #pfac = 4
 
         ww = pfac*ncol
         hh = pfac*nrow
@@ -553,6 +562,8 @@ class mds2_plot:
 
             rgba = mpl.cm.jet(ecolor)
 
+            
+
             seg_col = mc.LineCollection(segs,color=rgba)
             #seg_col = mc.LineCollection(segs)
             fig.colorbar(pnts,ax=ax)
@@ -572,6 +583,8 @@ class mds2_plot:
         #plt.savefig("markers1.pdf",format='pdf',bbox_inches='tight')
         #plt.savefig("receptors_homing.pdf",format='pdf',bbox_inches='tight')
         plt.tight_layout()
+        if self.fig_file:
+            plt.savefig(self.fig_file,format='pdf',bbox_inches='tight')
         plt.show()
 
     def cat_plot1(self,df_col,save=""):
@@ -705,8 +718,11 @@ class mds_tree:
         self.endp,self.branchp = cpoints0(csk)
 
 
-    def mk_tree(self,seed=137,level=1,xfac=1.0):
-        df_seg0 = self.df_avg.loc[:,self.traj_markers]
+    def mk_tree(self,seed=137,level=1,xfac=1.0,traj_markers=None):
+
+        if not traj_markers:
+            traj_markers = self.traj_markers
+        df_seg0 = self.df_avg.loc[:,traj_markers]
 
         crit0 = critical0(self.csk,level)
         crit_segs1 = crit0.crit_segs1

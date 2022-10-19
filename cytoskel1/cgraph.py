@@ -655,7 +655,9 @@ class cgraph:
         #lift the bottom of segs to make room for text
         for seg in vsegs:
             plo = seg[0]
-            plo[1] += .08
+            seg_lift = .10 #was .08
+            #seg_lift = .08
+            plo[1] += seg_lift
                 
 
         return eps,vsegs
