@@ -43,6 +43,7 @@ from collections import OrderedDict
 from matplotlib import cm
 
 import multiprocessing as mp
+mp.set_start_method('fork')
 
 import traceback
 
