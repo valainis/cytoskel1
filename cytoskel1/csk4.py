@@ -3,6 +3,7 @@ import os
 import shutil
 import pickle
 
+import anndata as ad
 import numpy as np
 import pandas as pd
 import numpy.linalg as la
@@ -43,10 +44,28 @@ from collections import OrderedDict
 from matplotlib import cm
 
 import multiprocessing as mp
-mp.set_start_method('fork')
+#mp.set_start_method('fork')
+
+csk_ctx = mp.get_context("fork")
 
 import traceback
 
+def mk_adata(df,data_cols,cat_cols=[]):
+    """
+    create AnnData object from typical mass cytometry
+    data
+    """
+    dfx = df.loc[:,data_cols]
+    adata = ad.AnnData(dfx,dtype=dfx.values.dtype)
+
+    df_obs = df.drop(data_cols,axis=1)
+
+    for col in df_obs.columns:
+        if col in cat_cols:
+            df_obs[col] = df_mon[col].astype("category")
+
+    adata.obs = df_obs
+    return adata
 
 
 
@@ -226,7 +245,6 @@ def set_pos1(cg):
     return vpos,vsegs,edges
 
 
-
 def nn_from_tree_2(csr_adj,nn):
     tot = csr_adj
 
@@ -342,7 +360,6 @@ class knn_graph:
     This class finds the neighbors of the Y points
     among the X points.
     """
-
     def worker(iseg,nl,X,Y,k,ires,dres):
         tree = BallTree(X, leaf_size=2)
         iseg1 = iseg+1
@@ -379,18 +396,18 @@ class knn_graph:
         self.dlist = [None]*(self.imax)
         self.ilist = [None]*(self.imax)           
 
-
-
     def run(self,k):
 
         nraw = k*self.Y.shape[0]
         
-        ires = mp.RawArray('i',nraw)
-        dres = mp.RawArray('d',nraw)
+        #ires = mp.RawArray('i',nraw)
+        ires = csk_ctx.RawArray('i',nraw)
+        #dres = mp.RawArray('d',nraw)
+        dres = csk_ctx.RawArray('d',nraw)
 
         threads = []
         for iseg in range(self.imax):
-            t = mp.Process(target=knn_graph.worker, args=(iseg,self.nl,self.X,self.Y,k,ires,dres))
+            t = csk_ctx.Process(target=knn_graph.worker, args=(iseg,self.nl,self.X,self.Y,k,ires,dres))
             threads.append(t)
             t.start()
             
@@ -411,9 +428,78 @@ class knn_graph:
         np.savetxt(dir+"/mgraph0.adj",self.ind,fmt="%d")
 
 
+class knn_para:
+    """
+    here we seek to find nearest neighbors
+    """
+    def worker(X,ix0,ix1,n_col,Iraw,Draw,X2):
+        X0 = X[ix0:ix1]; N = X.shape[0]
+        X20 = X2[ix0:ix1]
+
+        #dist0 = 1.0 - X0 @ X.T
+        dist0 = X20 - 2*(X0 @ X.T) + X2.T
+        idx = np.argsort(dist0,axis=1)
+        dist0 = np.take_along_axis(dist0,idx,axis=1)
+        idx = idx[:,:n_col]
+        dist0 = dist0[:,:n_col]
+
+        I = np.frombuffer(Iraw,dtype=np.int)
+        D = np.frombuffer(Draw,dtype=np.float)
+        I = I.reshape( (N,n_col))
+        D = D.reshape( (N,n_col))
+        I[ix0:ix1] = idx
+        D[ix0:ix1] = dist0
+
+    def run(self,X,n_col,kruns=8):
+        N,p = X.shape
+        n_proc0 = mp.cpu_count() // 2
+
+        X2 = np.sum(X*X,axis=1,keepdims=True)
+
+        n_proc = n_proc0 * kruns
+        
+        n0 = N//n_proc
+        n0p1 = n0+1
+
+        Iraw = csk_ctx.RawArray('L',N*n_col)
+        Draw = csk_ctx.RawArray('d',N*n_col)
+
+        isegs = []
+        for i in range(n_proc):
+            ix0 = i*n0p1
+            ix1 = (i+1)*n0p1
+            isegs.append([ix0,ix1])
+        isegs[-1][1] = N
+
+        t0 = time.time()
+
+        for j in range(kruns):
+            k0 = j*n_proc0
+            k1 = (j+1)*n_proc0
+
+            procs = []
+            for i in range(k0,k1):
+                p = csk_ctx.Process(target=knn_para.worker, args = (X,isegs[i][0],isegs[i][1],n_col,Iraw,Draw,X2) )
+                procs.append(p)
+                p.start()
+            for p in procs: p.join()
+
+            t1 = time.time()
+            print("krun",j,t1-t0)
+
+        I = np.frombuffer(Iraw,dtype=int)
+        D = np.frombuffer(Draw,dtype=float)
+        I = I.reshape( (N,n_col))
+        D = D.reshape( (N,n_col))
+
+        self.D = D
+        self.dist = D
+        self.I = I
+        self.ind = I
 
 
 class sparse_adj:
+    #no reason for this to be class
     def __init__(self,ind1,dist1):
         """
         ind1,dist1 are numpy arrays
@@ -440,6 +526,28 @@ class sparse_adj:
         bb = sp.csr_matrix(bb)
         self.csr_adj = bb
 
+def sparse_adj2(ind1,dist1):
+    """
+    ind1,dist1 are numpy arrays
+    with no explicity src vertices
+    src # is just row index
+    """
+    nrows = ind1.shape[0]
+    nrows1 = ind1.shape[0]+1
+    idim = ind1.shape[1]
+    ind1 = ind1.flatten()
+    dist1 = dist1.flatten()
+    indptr = np.arange(0,nrows1*idim,idim)
+
+    bb = sp.csr_matrix( (dist1,ind1,indptr),shape=(nrows,nrows))
+
+    bb = bb.tolil()
+    irow,icol = bb.nonzero()
+    bb[icol,irow] = bb[irow,icol] #symmetrize
+
+    bb = bb.tocsr()
+    return bb
+        
 
 class mst:
     def __init__(self,ind,dist):
@@ -454,8 +562,9 @@ class mst:
 
         dist1 += 1e-8
 
-        sadj = sparse_adj(ind1,dist1)
-        bb = sadj.csr_adj
+        #sadj = sparse_adj(ind1,dist1)
+        #bb = sadj.csr_adj
+        bb = sparse_adj2(ind,dist)
 
         self.csr_nn = bb
 
@@ -482,7 +591,8 @@ class mst:
 
         ncomp, labels = sp.csgraph.connected_components(self.csr_mst,directed=False)
 
-        print("mst components",ncomp)        
+        print("mst components",ncomp)
+
         
 
         
@@ -741,6 +851,18 @@ def sym_matrix(g):
     return g
 
     
+def mk_tspace0(adata, traj_cols, l1_norm = True):
+    X = adata[:,traj_cols].X.copy()
+
+    #have to check if X is csr_matrix
+    X = np.asarray(X.todense())
+
+    if l1_norm:
+        ntdata = la.norm(X,ord=1,axis=1,keepdims=True)
+        X /= ntdata
+
+    adata.uns['traj_cols'] = traj_cols
+    adata.obsm['traj_cols'] = X
 
 
 
@@ -803,6 +925,16 @@ class cytoskel:
         self.avg_markers = avg_markers
         self.mon_markers = mon_markers
 
+        if self.avg_markers != []:
+            data_cols = self.avg_markers
+            self.adata = mk_adata(self.df,data_cols)
+            self.adata.uns['avg_params'] = {}
+
+
+        else:
+            self.adata = None
+            
+
         self.pca_dim = pca_dim
 
 
@@ -828,6 +960,11 @@ class cytoskel:
 
         if pca_dim == 0:
             self.X = self.df_traj.values.copy()
+
+            if self.adata is not None:
+                self.adata.uns['traj_markers'] = self.traj_markers 
+                self.adata.obsm['traj_markers'] = self.df_traj.values
+                self.adata.write_h5ad(project_dir+"adata.h5ad")            
         elif pca_dim > 0:
             x = self.df_traj.values
             pca = pca_coords(x,self.pca_dim)
@@ -841,6 +978,19 @@ class cytoskel:
     #create an alias for create
     setup_graph_data = create
 
+
+    def create2(self,adata):
+        self.adata = adata
+        self.adata.write_h5ad(self.project_dir+"adata.h5ad")
+
+    def get_trajectory_coords(self,
+                                  traj_markers,
+                                  l1_normalize=True
+                                  ):
+        self.traj_markers = traj_markers
+
+        mk_tspace0(self.adata,traj_markers,l1_norm=l1_normalize)
+        
 
     def open(self):
         t0 = time.time()
@@ -944,12 +1094,23 @@ class cytoskel:
         if os.path.exists(project_dir+"df_mds2.csv"):
             self.df_mds2 = pd.read_csv(project_dir+"df_mds2.csv",index_col=0)
 
+        if os.path.exists(project_dir+"adata.h5ad"):
+            self.adata = ad.read_h5ad(project_dir+"adata.h5ad")
+            print("read adata.h5ad")
+        else:
+            data_cols = self.avg_markers
+            self.adata = mk_adata(self.df,data_cols)
+            self.adata.write_h5ad(project_dir+"adata.h5ad")
+
         t1 = time.time()
 
         print("open time",t1 - t0)
             
         return True
 
+    def save_adata(self):
+        if self.adata is not None:
+            self.adata.write_h5ad(self.project_dir+"adata.h5ad")                                
 
     def mk_log(self):
         #run in create
@@ -1240,10 +1401,21 @@ class cytoskel:
         nsegs = self.n_process
         
         #knn = knn_graph(self.df_traj.values,self.df_traj.values,nsegs=nsegs)
-        knn = knn_graph(self.X,self.X,nsegs=nsegs)
+        if self.adata is not None:
+            print("knn on adata")
+            X = self.adata.obsm['traj_markers']
+            knn = knn_graph(X,X,nsegs=nsegs)
+        else:
+            knn = knn_graph(self.X,self.X,nsegs=nsegs)
         knn.run(k)
         self.adj = knn.ind[:,1:]
         self.dist = knn.dist[:,1:]
+
+        if self.adata is not None:
+            self.adata.obsm['knn_adj'] = self.adj
+            self.adata.obsm['knn_dist'] = self.dist
+            self.adata.write_h5ad(self.project_dir+"adata.h5ad")                        
+            
 
         np.savez(self.project_dir+"nn0.npz",adj = self.adj, dist = self.dist)        
 
@@ -1260,6 +1432,14 @@ class cytoskel:
         self.csr_mst = mst0.csr_mst
         sp.save_npz(self.project_dir+"nn.npz",mst0.csr_nn)
         self.csr_nn = mst0.csr_nn
+
+        if self.adata is not None:
+            self.adata.obsp['csr_nn'] = self.csr_nn
+            self.adata.obsp['csr_mst'] = self.csr_mst            
+            self.adata.write_h5ad(self.project_dir+"adata.h5ad")
+
+        print("mst graph done")
+        
 
 
         
@@ -1282,6 +1462,14 @@ class cytoskel:
 
         self.br_adj = branch_adj2(paths)
 
+        if self.adata is not None:
+            print("do branches")
+            #self.adata.uns['paths'] = paths
+            self.adata.obsp['csr_br'] = self.csr_br
+            #self.adata.uns['br_adj'] = self.br_adj
+            self.adata.write_h5ad(self.project_dir+"adata.h5ad")                                    
+
+        print("do branches 2")            
         cg = cgraph()
         cg.get_reduced_graph(self.br_adj)
         self.cg = cg
@@ -1291,10 +1479,12 @@ class cytoskel:
         sp.save_npz(self.project_dir+"csr_br.npz",self.csr_br)        
 
 
-    def get_average_fix(self,avg_markers,fixed=[],navg=5,ntree=4,n_radius = -1, sfile=None):
+    def get_average_fix(self,avg_markers,fixed=[],navg=5,ntree=4,n_radius = -1, sfile=None,avg='avg_0'):
         #note: radius is ntree+1
 
         self.write_x(avg_markers,"ahead.txt")
+
+        
         self.avg_markers = avg_markers
 
         write_setup(self.project_dir+"run.setup",
@@ -1349,6 +1539,8 @@ class cytoskel:
         #add averaging matrix to the csk object
         self.csr_avg = tot2
 
+
+
         sp.save_npz(self.project_dir+"csr_avg.npz",self.csr_avg)
 
         #self.mst_nn_adj = tot.rows #this seems not to be used for anything
@@ -1378,6 +1570,15 @@ class cytoskel:
         df_avg.values[:,:] = val0[:,:]
         df2[avg_markers] = df_avg[avg_markers]
 
+        if self.adata is not None:
+            self.adata.uns['avg_params'][avg] =  {"n_radius" : n_radius, "src" : "csr_mst", "matrix" : "csr_avg", "navg" : navg, "markers" : avg_markers}
+            self.adata.obsp['csr_avg'] = self.csr_avg
+            #self.adata.obsm[avg] = df_avg[avg_markers].values
+
+            #data frame most conveniently stored in uns
+            self.adata.uns[avg] = df_avg
+        
+
         self.df_avg = df2
 
         if sfile == None:
@@ -1387,6 +1588,8 @@ class cytoskel:
 
         t1 = time.time()     
         self.add_log("average "+ str(t1-t0))
+
+        self.save_adata()
 
     do_mst_averaging = get_average_fix #set an alias with a better name
 
@@ -1477,6 +1680,13 @@ class cytoskel:
 
         self.csr_mst = dk0.tocsr()
 
+        #add this for find_branches
+        ltmp = self.csr_mst.tolil()
+
+        self.mst_adj = ltmp.rows
+        self.mst_dist = ltmp.data
+        
+
         t1 = time.time()
 
         self.add_log("link " + str(t1-t0))
@@ -1541,6 +1751,24 @@ class cytoskel:
 
         return dmst
 
+
+    def mk_pca_transform(self):
+        adata = self.adata
+        tcols = adata.uns['traj_markers']
+        X0 = adata[:,tcols].X
+        pca = csk1.pca_coords(X0,cdim=3,fix=True)
+
+        adata.uns['pca.uu'] = pca.uu
+        adata.uns['pca.mu'] = pca.mu
+
+    def do_pca_transform(self,vecs0):
+        adata = self.adata
+        ucoord = (vecs0 - adata.uns['pca.mu']) @ adata.uns['pca.uu']
+        unorms = la.norm(ucoord,axis=1)
+        urad = np.amax(unorms)
+
+        return ucoord, urad
+    
 
     def path_traj_dist(self,v0,v1):
         gsp = gspaths2(self.br_adj)
@@ -2206,6 +2434,5 @@ class tree_dist:
         self.br_map = br_map
 
         return paths,seg_branches
-
 
 

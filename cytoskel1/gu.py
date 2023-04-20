@@ -1065,13 +1065,13 @@ class mds00:
 
         
 
-    def mplot(self,clist,nrow,ncol):
+    def mplot(self,clist,nrow,ncol,do_xcrit=None):
         ux2 = self.ux2
         tedges0 = self.tedges0
         segs = self.segs
         xcrit = self.xcrit
         df_color = self.df_color
-        mds_plot(df_color,ux2,segs,tedges0,nrow,ncol,clist,xcrit)        
+        mds_plot(df_color,ux2,segs,tedges0,nrow,ncol,clist,xcrit,do_xcrit)        
     
 
     def gray(self,clist,nrow,ncol):
@@ -1360,7 +1360,7 @@ def crit_plot(X,segs,ilist,nlist):
 
 
 
-def mds_plot(df_colors,ux2,segs,tedges0,nrow,ncol,clist,xcrit):
+def mds_plot(df_colors,ux2,segs,tedges0,nrow,ncol,clist,xcrit,do_xcrit):
     pfac = 2.8
 
     ww = pfac*ncol
@@ -1401,7 +1401,7 @@ def mds_plot(df_colors,ux2,segs,tedges0,nrow,ncol,clist,xcrit):
         #pnts = ax.scatter(ux2[:,0],ux2[:,1],s=25,c=color,cmap=mpl.cm.jet,vmin=0.0)
         pnts = ax.scatter(ux2[:,0],ux2[:,1],s=5,c=color,cmap=mpl.cm.jet,vmin=0.0)
 
-        ax.scatter(xcrit[:,0],xcrit[:,1],c='k')
+        if do_xcrit: ax.scatter(xcrit[:,0],xcrit[:,1],c='k')
 
         rgba = mpl.cm.jet(ecolor)
 

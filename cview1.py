@@ -61,7 +61,7 @@ class examine_bdata(QMainWindow):
 
         self.mode = "Base"
         self.modes = ["Base","Select Segments","Cell Info","Set Start","Split"]      
-        sc = subway_canvas3(self, mwin,width=14, height=7.5, dpi=100)
+        sc = subway_canvas3(self, mwin,width=14, height=7.5, dpi=100,name_list=mwin.subway_names)
 
         #sc.setFocusPolicy( QtCore.Qt.ClickFocus )
         #ok strong focus works, the above had some trouble
@@ -203,7 +203,7 @@ class examine_bdata(QMainWindow):
 
         self.subway_canvas.compute_initial_figure()        
         
-    def do_qlist(self):
+    def do_qlist0(self):
         qlis = Dialog_01(self)
 
         if hasattr(self.mwin,"subway_names"):
@@ -214,6 +214,13 @@ class examine_bdata(QMainWindow):
         #qlis.exec_() #for modal
         qlis.show()
     
+    def do_qlist(self):
+        qlis = Dialog_02(self,self.mwin.subway_names,self.subway_canvas.compute_initial_figure)
+
+        qlis.resize(300,500)
+        qlis.setModal(False)
+        #qlis.exec_() #for modal
+        qlis.show()
 
 
 class MWin(QMainWindow):
@@ -246,7 +253,17 @@ class MWin(QMainWindow):
 
         if len(argv) > 1:
             self.open_bdata(argv[1])
-        
+
+
+
+    def closeEvent(self,event):
+        #added to keep from mistakenly closing the main window
+        reply = QMessageBox.question(self, 'win close','close the window?',
+          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            event.accept()
+        else:
+            event.ignore()
 
     def createActions(self):
         self.open_bdata_action = QAction("&Open Branch Data...", self,triggered=self.open_bdata)
@@ -345,7 +362,7 @@ class MWin(QMainWindow):
         self.txt.setPlainText(s+s2)
 
 
-    def show_cell_info(self,cell):
+    def show_cell_info1(self,cell):
         info = ["cell",str(cell)]
 
         df_info = self.csk.df_avg2
@@ -376,6 +393,37 @@ class MWin(QMainWindow):
 
         self.txt.setPlainText(qstr)
         
+    def show_cell_info(self,cell):
+        info = ["cell",str(cell)]
+
+        df_info = self.csk.df_avg2
+
+        markers = df_info.columns
+        markers = self.subway_names
+        #marker name lengths
+        mlens = [len(x) for x in markers]
+        mw = "%"+str(max(mlens)+1)+"s"
+        fw = "%9.1f"
+        iw = "%9d"
+        sw = "%9s"
+
+        info.append("\n")
+
+        shead = mw % "marker" + " " + sw % "value"
+
+        info.append(shead)
+        cell_data = df_info.loc[cell,self.subway_names].values
+        
+        for i,m in enumerate(markers):
+            cd = cell_data[i]
+            if isinstance(cd,str):
+                info.append(mw + " " + cd)
+            else:
+                info.append(mw % m + " " + "%9.3f" % cell_data[i])
+
+        qstr = "\n".join(info)
+
+        self.txt.setPlainText(qstr)
 
     def add_density(self):
         if hasattr(self.csk,"csr_mst"):

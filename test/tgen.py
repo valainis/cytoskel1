@@ -22,7 +22,7 @@ if __name__ == '__main__':
 
     t0 = time.time()
     csk = csk1.cytoskel("../proj/py_tgen8_1")
-    csk.create(df,traj_cols,l1_normalize=True)
+    csk.create(df,traj_cols,avg_markers=avg_cols,l1_normalize=True)
 
     t1 = time.time()
 

@@ -780,7 +780,50 @@ class vpoints:
         self.points = points
         self.p_data = p_data
 
-    def add_lines(self,br_adj,rmap0,r0):
+    def add_lines(self,csr_br,rmap0,r0):
+        points = self.points
+        lines = vtk.vtkCellArray()
+
+        e0,e1 = csr_br.nonzero()
+
+        line_id = 0
+        for i,v in enumerate(e0):
+            iv = rmap0[v]
+            v2 = e1[i]
+            iv2 = rmap0[v2]
+            line0 = vtk.vtkLine()
+            line0.GetPointIds().SetId(0,iv)
+            line0.GetPointIds().SetId(1,iv2)
+            lines.InsertNextCell(line0)
+                
+        # Create a polydata to store everything in
+        linesPolyData = vtk.vtkPolyData()
+
+        # Add the points to the dataset
+        linesPolyData.SetPoints(points)
+
+        # Add the lines to the dataset
+        linesPolyData.SetLines(lines)
+
+        tubes = vtk.vtkTubeFilter()
+        tubes.SetInputData(linesPolyData)
+        #tubes.CappingOn()
+        tubes.SidesShareVerticesOff()
+        tubes.SetNumberOfSides(16)
+        tubes.SetRadius(.15*r0)
+        tubes.Update()
+
+        # Visualize
+        line_mapper = vtk.vtkPolyDataMapper()
+        #line_mapper.SetInputData(linesPolyData)
+        line_mapper.SetInputData(tubes.GetOutput())        
+
+        line_actor = vtk.vtkActor()
+        line_actor.SetMapper(line_mapper)
+        line_actor.GetProperty().SetColor(1,1,1)
+        self.line_actor = line_actor
+
+    def add_lines0(self,br_adj,rmap0,r0):
         points = self.points
         lines = vtk.vtkCellArray()
 
@@ -824,10 +867,11 @@ class vpoints:
 
 
 def mk_transform(csk):
-    pcells = list(csk.br_adj.keys())
+    #pcells = list(csk.br_adj.keys())
     tcols = csk.traj_markers
     
-    tdata0 = csk.df_avg.loc[pcells,tcols].values
+    #tdata0 = csk.df_avg.loc[pcells,tcols].values
+    tdata0 = csk.df_avg.loc[:,tcols].values
     n = tdata0.shape
 
     pca = csk1.pca_coords(tdata0)
@@ -1123,7 +1167,23 @@ def read_x(fname):
 
 def dset(csk,mwin):
 
-    pcells = list(csk.br_adj.keys())
+    if csk.adata is not None:
+        print(csk.adata)
+
+    csr_br = csk.adata.obsp['qmst_br']
+    #csr_br = csk.csr_br
+
+    e0,e1 = csr_br.nonzero()
+
+
+    vset = set(e0)
+    vset.update(e1) #not necessary since csr_br is symmetric
+    vset = list(vset)
+    vset.sort()
+
+    pcells = vset
+
+    #pcells = list(csk.br_adj.keys())
     map0,rmap0 = mk_maps(csk.df_avg,pcells)
     ncells = len(map0)
     tcols = csk.traj_markers
@@ -1135,6 +1195,7 @@ def dset(csk,mwin):
         df_uut = mwin.df_uut
     else:
         #make df_uut from project trajectory
+        print("mk_transform")
         df_uut = mk_transform(csk)
         mwin.df_uut = df_uut
 
@@ -1181,7 +1242,8 @@ def dset(csk,mwin):
     vpts = vpoints(data,rscale,src=mwin.src_list[ivpnts % 2],csk=csk)
     points = vpts.points
 
-    vpts.add_lines(br_adj,rmap0,r0)
+    #vpts.add_lines(br_adj,rmap0,r0)
+    vpts.add_lines(csr_br,rmap0,r0)
 
     vpts.map0 = map0
     vpts.rmap0 = rmap0

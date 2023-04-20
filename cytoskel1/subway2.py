@@ -54,9 +54,10 @@ def seg_dist(x, a0, a1):
 
 class subway_canvas3(FigureCanvas):
 
-    def __init__(self,parent, mwin, width=12, height=9, dpi=220):
+    def __init__(self,parent, mwin, width=12, height=9, dpi=220,name_list=[]):
 
         self.parent = parent
+        self.name_list = name_list
         
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         super().__init__(self.fig)
@@ -123,9 +124,10 @@ class subway_canvas3(FigureCanvas):
 
         self.cg0.forward_graph(self.cg0.reduced_adj)
 
-        print("names",self.mwin.subway_names)
+        #print("names",self.mwin.subway_names)
 
-        self.vtext,self.seglines = self.subway1(self.mwin.subway_names)
+        #self.vtext,self.seglines = self.subway1(self.mwin.subway_names)
+        self.vtext,self.seglines = self.subway1(self.name_list)
 
         print("initial 1",self.cg0.start)        
 
@@ -159,7 +161,8 @@ class subway_canvas3(FigureCanvas):
 
                 self.start = verts[imin]
                 self.cg0.forward_graph(self.cg0.reduced_adj,start=verts[imin])
-                self.vtext,self.seglines = self.subway1(self.mwin.subway_names,start=verts[imin])
+                #self.vtext,self.seglines = self.subway1(self.mwin.subway_names,start=verts[imin])
+                self.vtext,self.seglines = self.subway1(self.name_list,start=verts[imin])
                 self.draw()
 
             elif event.button == 3 and self.eb.mode == "Select Segments":
@@ -189,7 +192,8 @@ class subway_canvas3(FigureCanvas):
 
                 self.start = self.cg0.start
                 self.cg0.forward_graph(self.cg0.reduced_adj,start=self.start)                    
-                self.vtext,self.seglines = self.subway1(self.mwin.subway_names,self.start)
+                #self.vtext,self.seglines = self.subway1(self.mwin.subway_names,self.start)
+                self.vtext,self.seglines = self.subway1(self.name_list,self.start)
                 self.draw()                    
 
                 #self.mwin.pca_branches.append(vp2)
@@ -223,7 +227,8 @@ class subway_canvas3(FigureCanvas):
 
                 self.start = vpick
                 self.cg0.forward_graph(self.cg0.reduced_adj,start=self.start)                
-                self.vtext,self.seglines = self.subway1(self.mwin.subway_names,self.start)
+                #self.vtext,self.seglines = self.subway1(self.mwin.subway_names,self.start)
+                self.vtext,self.seglines = self.subway1(self.name_list,self.start)
                 self.draw()
                 
 

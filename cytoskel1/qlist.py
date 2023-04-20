@@ -101,7 +101,7 @@ class ListWidget2(QListWidget):
 
         modP = QApplication.keyboardModifiers()        
         
-
+        #this is how to delete list items
         if (event.buttons() == Qt.RightButton) and ((modP & Qt.ShiftModifier) == Qt.ShiftModifier):
             row = self.currentRow()
             self.takeItem(row)
@@ -189,6 +189,105 @@ class Dialog_01(QDialog):
         print("qlist apply",eb.csk.cg.start)
         eb.subway_canvas.compute_initial_figure()        
         
+
+    def idoub(self,value):
+        print(value)
+        row = self.listWidgetB.currentRow()
+        self.listWidgetB.takeItem(row)
+
+    def items_dropped(self, arg):
+        print('items_dropped', arg)
+        pass
+
+    def item_clicked(self, arg):
+        print("clicked",arg)
+
+
+class Dialog_02(QDialog):
+    def __init__(self,parent=None,name_list=[],apply_func=None):
+        super().__init__(parent)
+
+        self.name_list = name_list
+
+        self.apply_func = apply_func
+        
+        self.listItems={}
+
+        self.csk = self.parent().csk
+
+        glay = QGridLayout()
+
+
+        myBoxLayout = QHBoxLayout()
+        #self.setLayout(myBoxLayout)
+        self.setLayout(glay)
+
+        self.items0 = []
+
+        self.listWidgetA = ListWidget1(self)
+
+        self.lwA = self.listWidgetA
+
+        #qitem = QListWidgetItem("curvature", self.lwA)
+        #self.items0.append(qitem)
+
+        #for m in self.csk.markers:
+        for m in self.csk.df_avg2.columns:
+            qitem = QListWidgetItem( m, self.listWidgetA )
+            self.items0.append(qitem)
+        #myBoxLayout.addWidget(self.listWidgetA)
+
+        glay.addWidget(self.listWidgetA,0,0)
+
+        self.listWidgetB = ListWidget2(self,self.listWidgetA)
+        myBoxLayout.addWidget(self.listWidgetB)
+
+        glay.addWidget(self.listWidgetB,0,1)
+
+        self.listWidgetB.currentItemChanged.connect(self.item_clicked)        
+        self.listWidgetB.itemDoubleClicked.connect(self.idoub)
+
+        snames = list(self.parent().mwin.csk.df_avg2.columns)
+
+        for m in self.name_list[::-1]:
+            qitem = QListWidgetItem( m, self.listWidgetB )
+            self.items0.append(qitem)
+        
+
+        self.listWidgetA.iden = "A"
+        self.listWidgetB.iden = "B"
+        self.listWidgetB.text = ""
+
+        setButton = QPushButton("Draw")
+        setButton.clicked.connect(self.draw0)
+        glay.addWidget(setButton,1,0,1,2)
+        
+
+        self.listWidgetA.partner = self.listWidgetB
+
+    def draw0(self):
+        print("applied")
+        n_items = self.listWidgetB.count()
+
+        lwb = self.listWidgetB        
+
+        items = []
+        for index in range(n_items):
+            items.append(lwb.item(index).text())
+
+        if len(items) == 0:
+            self.parent().mwin.txt.setPlainText("subway empty list")
+            return
+
+        eb = self.parent()
+
+        self.name_list.clear()
+        self.name_list.extend(items[::-1])
+
+        print("qlist apply",eb.csk.cg.start)
+        if self.apply_func is not None:
+            #eb.subway_canvas.compute_initial_figure()
+            self.apply_func()
 
     def idoub(self,value):
         print(value)

@@ -31,6 +31,7 @@ if __name__ == '__main__':
     csk = csk1.cytoskel("../proj/py_tlink8_1")
     csk.create(df,traj_cols,
                    l1_normalize=True,
+                   avg_markers = avg_cols,
                    level_marker='day')
 
 

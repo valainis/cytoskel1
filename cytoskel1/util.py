@@ -2,6 +2,8 @@ import sys
 from collections import OrderedDict
 from sortedcontainers import SortedDict,SortedList
 import scipy.sparse as sp
+import scipy.sparse.linalg as spla
+from scipy.sparse.linalg import svds, eigs
 
 import numpy as np
 import numpy.linalg as la
@@ -560,3 +562,76 @@ class pca_coords:
         ax.scatter(x,self.evals**.5)
         plt.show()
     
+
+class svd_coords:
+    #appropriate for sparse X
+
+    class rmatvec:
+        def __init__(self,X,mu):
+            self.X = X
+            self.mu = mu
+
+        def __call__(self,v):
+            v = v.ravel()
+            #print("v",v.shape)
+            #print("X",self.X.shape)
+            #print("mu",self.mu.shape)
+            return v @ self.X - self.mu
+
+    class matvec0:
+        def __init__(self,X,mu):
+            self.X = X
+            self.mu = mu
+
+        def __call__(self,v):
+            return self.X @ v - self.mu @ v
+
+    
+    def __init__(self,X,k=5):
+        self.mu = np.asarray(X.mean(axis=0)).flatten()
+        self.k = k
+        N = X.shape[0]
+        X_op = svd_coords.matvec0(X,self.mu)
+        Xt_op = svd_coords.rmatvec(X,self.mu)
+        A = spla.LinearOperator(shape=X.shape,matvec=X_op,rmatvec=Xt_op)
+
+        ncv = min(2*k,X.shape[1]-1)
+
+        U, S, Vt = svds(A, k=k, ncv=ncv)
+
+        #sort the singular values into correct order
+        idx = np.argsort(S)[::-1]
+
+        Ns = N**.5
+        #correct scaling for covariance matrix eigs
+        self.S = S[idx] / Ns
+        self.evals = self.S **2
+        Vt = Vt[idx]
+
+        #a column is an eigenvector
+        self.evecs = Vt.T
+
+        self.mu_bar = self.mu @ self.evecs
+
+        self.ux = U*S
+        
+    def get_coords(self,X0,uk=3,center=True):
+        Xbar = X0 @ self.evecs[:,:uk]
+        mu_bar = self.mu @ self.evecs[:,:uk]
+
+        #this avoids sparsity problems
+        #could also subtract mu_bar afterwards
+        #return Xbar - mu_bar
+
+        if center:
+            ux = Xbar - self.mu_bar[:uk]
+        else:
+            ux = Xbar
+
+        unorm = la.norm(ux,axis=1)
+        urad = np.amax(unorm)
+
+        return ux,urad
+            
+
+
