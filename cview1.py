@@ -341,7 +341,11 @@ class MWin(QMainWindow):
             self.txt.setPlainText(s)
 
         self.csk = csk1.cytoskel(file)
-        self.csk.open()
+
+        #try open2
+        #self.csk.open()
+        self.csk.open2()
+        
         #for adding data like inverse density
         self.csk.df_avg2 = self.csk.df_avg.copy()
 

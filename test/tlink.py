@@ -43,7 +43,7 @@ if __name__ == '__main__':
     csk.do_graphs(n_process=4)
 
 
-    csk.do_branches(-1,6)
+    csk.do_branches0(-1,6)
 
     csk.get_average_fix(avg_cols,navg=5,ntree=4)
 

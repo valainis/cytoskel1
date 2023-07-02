@@ -967,7 +967,8 @@ class MainWindow(QMainWindow):
         self.dir_name = pdir
 
         csk = csk1.cytoskel(pdir)
-        if not csk.open():
+        #if not csk.open():
+        if not csk.open2(): #make this the new version
             print("Invalid project")
             return
         else:

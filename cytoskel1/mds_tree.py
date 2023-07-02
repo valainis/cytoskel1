@@ -16,6 +16,7 @@ from matplotlib.collections import LineCollection,PatchCollection
 import matplotlib.patches as mpatches
 import matplotlib as mpl
 import matplotlib.collections as mc
+from matplotlib.figure import Figure
 
 from sklearn.metrics import euclidean_distances
 from sklearn import manifold
@@ -107,6 +108,87 @@ def ax_plot0(fig,ax,ux2,df_avg,segs,e0,e1,map0,splot=True,name=None):
     ax.spines['bottom'].set_visible(False)
     ax.spines['top'].set_visible(False)
 
+def ax_dplot2(fig,ax,ux2,segs,e0,e1,map0,dcolor=None,cat_dict=None,cat_values=None):
+    #df_col is now a Series
+
+    cmap0 = mpl.cm.inferno    
+    #m = df_col.name    
+
+    #xcol = df_col.values
+
+    #scol = list(set(xcol))
+    #scol.sort()
+
+    #scol = cat_values
+
+    #print(scol)
+
+    #dcolor = ['r','tab:orange','k','g','b','m','y']
+
+    dcolor = ['r','y','g','b','m','k','c']
+    
+
+    #color = df_col.loc[map0,m].values
+
+    ivalues = np.zeros(cat_values.shape[0],dtype=int)
+
+    for cat in cat_dict.keys():
+        sel = cat_values == cat
+        ivalues[sel] = cat_dict[cat]
+
+    print(ivalues)
+
+    scol = list(set(ivalues))
+
+    scol.sort()
+
+    
+    color0 = ivalues[map0]
+
+    
+
+    #ux2 marker cluster designnation
+
+    """
+    color = []
+
+    for cx in color0:
+        color.append(dcolor[cx])
+    """
+    marks = ['o','v','^','<','>','s']
+
+    for cat in cat_dict.keys():
+        icat = cat_dict[cat]
+        #sel = cat_values == cat
+        sel = color0 == icat
+        nsel = np.sum(sel)
+        print("category",cat,nsel)
+        if nsel > 0:
+            ux_sel = ux2[sel]
+            pnts = ax.scatter(ux_sel[:,0],ux_sel[:,1],s=30,c=dcolor[icat % 7],label=cat,marker=marks[icat % 6])
+
+
+    seg_col = mc.LineCollection(segs,color='k',alpha=.3)
+
+    #fig.colorbar(pnts,ax=ax)
+    ax.add_collection(seg_col)
+    #ax.set_xlabel(m)
+
+    #ax.legend(loc='upper right',bbox_to_anchor=(1.1, 1.05))
+    #ax.legend(loc='upper right',bbox_to_anchor=(1.1, 1.0))
+    ax.legend(loc='upper right',bbox_to_anchor=(1.0, 1.0))              
+
+    #ax.axis('equal')
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_xticks([])
+    ax.set_yticks([])        
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+
+
 def ax_dplot0(fig,ax,ux2,df_col,segs,e0,e1,map0,dcolor=None):
     #df_col is now a Series
 
@@ -118,12 +200,12 @@ def ax_dplot0(fig,ax,ux2,df_col,segs,e0,e1,map0,dcolor=None):
     scol = list(set(xcol))
     scol.sort()
 
-    print(scol)
+    #print(scol)
 
     #dcolor = ['r','tab:orange','k','g','b','m','y']
 
-    dcolor = ['r','y','g','b','m','k','c']
-    
+
+    dcolor = ['r','y','g','b','m','k','c']    
 
     #color = df_col.loc[map0,m].values
     color0 = df_col.loc[map0].values
@@ -136,12 +218,13 @@ def ax_dplot0(fig,ax,ux2,df_col,segs,e0,e1,map0,dcolor=None):
     for cx in color0:
         color.append(dcolor[cx])
     """
-    marks = ['o','v','^','<','>','s']
+
+    marks = ['o','v','^','<','>','s']    
 
     for s in scol:
         sel = color0 == s
         nsel = np.sum(sel)
-        print("cluster",s,nsel)
+        print("category",s,nsel)
         if nsel > 0:
             ux_sel = ux2[sel]
             pnts = ax.scatter(ux_sel[:,0],ux_sel[:,1],s=30,c=dcolor[s % 7],label="cluster " + str(s),marker=marks[s % 6])
@@ -165,6 +248,7 @@ def ax_dplot0(fig,ax,ux2,df_col,segs,e0,e1,map0,dcolor=None):
     ax.spines['right'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
     ax.spines['top'].set_visible(False)
+
 
 
 def add_arch(A,B):
@@ -383,19 +467,30 @@ class mdsxx:
 
 
 class mds2_plot:
-    def __init__(self,csk,xfac=1.0,yfac=1.0,fig_file=None):
+    def __init__(self,csk,xfac=1.0,yfac=1.0,mds_key='mds 0',ux2=None,uxtot=None):
+        """
         if not hasattr(csk,'df_mds2'):
             print('cytoskel object has no attribute df_mds2')
             print('run mds_tree.mk_tree')
             exit()
+        """
 
-        self.fig_file = fig_file
+        if mds_key not in csk.adata.uns['coords_2d']:
+            print("no data for ", mds_key)
+            print('run mds_tree.mk_tree with',mds_key)
         self.csk = csk
 
         if hasattr(csk,'csr_br'):
             self.csr_br = csk.csr_br
 
-        self.ux2 = csk.df_mds2.values
+        #self.ux2 = csk.df_mds2.values
+        if ux2 is None:
+            self.ux2 = csk.adata.uns[mds_key].values
+        else:
+            self.ux2 = ux2
+
+        self.uxtot = uxtot
+            
         self.ux2[:,0] *= xfac
         self.ux2[:,1] *= yfac        
         self.br_adj = csk.br_adj
@@ -509,7 +604,7 @@ class mds2_plot:
             plt.show()
 
 
-    def plot0(self,nrow,ncol,clist,df_avg,pfac=4.0):
+    def plot0(self,nrow,ncol,clist,df_avg,pfac=4.0,save=""):
         """
         plot markers in clist using
         values in df_avg
@@ -583,9 +678,205 @@ class mds2_plot:
         #plt.savefig("markers1.pdf",format='pdf',bbox_inches='tight')
         #plt.savefig("receptors_homing.pdf",format='pdf',bbox_inches='tight')
         plt.tight_layout()
-        if self.fig_file:
-            plt.savefig(self.fig_file,format='pdf',bbox_inches='tight')
+        if save != "":
+            plt.savefig(save,format='pdf',bbox_inches='tight')
+        else:
+            plt.show()
+
+
+    def crit_plot(self,crit0):
+        #originally from tsg/zcrit_basa1_0.py
+        tvecs = self.ux2.T
+        segs = self.segs
+
+        acolors = ['r','g','b','c','tab:blue', 'tab:brown','m','y', 'k','tab:orange']
+
+        ilist = []
+        mtypes = []
+        nlist = []
+
+        for i,icell in enumerate(crit0.endp):
+            typ = ('s',acolors[i])
+            mtypes.append(typ)
+            nlist.append(str(icell))
+            ilist.append(icell)
+
+        for i,icell in enumerate(crit0.branchp):
+            typ = ('o',acolors[i])
+            mtypes.append(typ)
+            nlist.append(str(icell))
+            ilist.append(icell)            
+
+        for i,icell in enumerate(crit0.turnp):
+            typ = ('^',acolors[i%10])
+            mtypes.append(typ)
+            nlist.append(str(icell))
+            ilist.append(icell)            
+            
+        ilist = self.rmap0[ilist]
+
+
+        #markers = ["." , "," , "o" , "v" , "^" , "<", ">"]    
+        #markers = ["o" , "s" , 'v', "^" , "<", ">"]
+
+        #mtypes = list(product(markers,acolors))
+
+
+        fig,ax = plt.subplots(figsize=(13,9.))
+
+        ax.scatter(tvecs[0,:],tvecs[1,:],c='darkgrey',s=10)
+
+        
+
+        for i,name in enumerate(nlist):
+            ii = ilist[i]
+            mtyp = mtypes[i]
+            ax.scatter(tvecs[0,ii],tvecs[1,ii],edgecolor=mtyp[1],marker=mtyp[0],facecolor='none',linewidth=2,s=80,label=name)
+            #ax.scatter(tvecs[0,csel],tvecs[1,csel],facecolors='none',edgecolors=acolors[i],s=20,label=scol)
+
+        #ax.set_xlabel(m,fontsize=16,fontweight='bold')
+        #ax.axis('equal')
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])        
+        ax.spines['left'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['top'].set_visible(False)                
+
+        seg_coll = mc.LineCollection(segs,color='k',alpha=.7)
+        ax.add_collection(seg_coll)
+
+        ax.legend()
+        plt.tight_layout()
         plt.show()
+
+    def crit_plot2(self,crit0):
+        print("crit_plot2")
+        tvecs = self.ux2.T
+        uxtot = self.uxtot
+        acolors = ['r','g','b','c','tab:blue', 'tab:brown','m','y', 'k','tab:orange']
+
+        
+        pcells = np.array(self.csk.br_adj.keys())
+
+        print("pcells",pcells.shape[0])
+
+        segments = self.csk.cg.segments
+
+        print(segments.keys())
+
+        dsegs = []
+        idx0 = 0
+        ipairs = []
+
+        for spair in segments.keys():
+            if spair[0] < spair[1]:
+                dsegs.append(spair)
+                segment = segments[spair]
+                nedges = len(segment)-1
+                idx1 = idx0 + nedges
+                ipair = (idx0,idx1)
+                idx0 = idx1
+                ipairs.append(ipair)
+
+        ecolors = np.zeros((idx1,4),dtype=float)
+
+
+        seg_edges_list = []
+
+        for i,spair in enumerate(dsegs):
+            ipair = ipairs[i]
+            print("ipair",ipair)
+            ecolors[ipair[0]:ipair[1],:] = mpl.colors.to_rgba(acolors[i%10])
+            segment = segments[spair]
+            seg_edges = np.array([segment[:-1],segment[1:]],dtype=int).T
+            print(spair,seg_edges.shape[0])
+            seg_edges_list.append(seg_edges)
+
+        edges2 = np.concatenate(seg_edges_list,axis=0)
+
+        segs = uxtot[edges2]
+
+        print("edges2",edges2.shape)
+
+        print("uxtot",self.uxtot.shape)
+
+
+
+        ilist = []
+        mtypes = []
+        nlist = []
+
+        for i,icell in enumerate(crit0.endp):
+            typ = ('s',acolors[i])
+            mtypes.append(typ)
+            nlist.append(str(icell))
+            ilist.append(icell)
+
+        for i,icell in enumerate(crit0.branchp):
+            typ = ('o',acolors[i])
+            mtypes.append(typ)
+            nlist.append(str(icell))
+            ilist.append(icell)            
+
+        for i,icell in enumerate(crit0.turnp):
+            typ = ('^',acolors[i%10])
+            mtypes.append(typ)
+            nlist.append(str(icell))
+            ilist.append(icell)            
+
+        #this makes ilist the ux2 indices
+        ilist0 = ilist
+        ilist = self.rmap0[ilist]
+
+
+        print("ilist",ilist)
+        print("endp",crit0.endp)
+
+
+
+
+
+        #markers = ["." , "," , "o" , "v" , "^" , "<", ">"]    
+        #markers = ["o" , "s" , 'v', "^" , "<", ">"]
+
+        #mtypes = list(product(markers,acolors))
+
+
+        fig,ax = plt.subplots(figsize=(13,9.))
+
+        #ax.scatter(tvecs[0,:],tvecs[1,:],c='darkgrey',s=10)
+        ax.scatter(uxtot[pcells,0],uxtot[pcells,1],c='darkgrey',s=10)
+
+
+        for i,name in enumerate(nlist):
+            ii = ilist0[i]
+            mtyp = mtypes[i]
+            #ax.scatter(tvecs[0,ii],tvecs[1,ii],edgecolor=mtyp[1],marker=mtyp[0],facecolor='none',linewidth=2,s=80,label=name)
+            ax.scatter(uxtot[ii,0],uxtot[ii,1],edgecolor=mtyp[1],marker=mtyp[0],facecolor='none',linewidth=2,s=80,label=name)
+            #ax.scatter(tvecs[0,csel],tvecs[1,csel],facecolors='none',edgecolors=acolors[i],s=20,label=scol)
+
+        #ax.set_xlabel(m,fontsize=16,fontweight='bold')
+        #ax.axis('equal')
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xticks([])
+        ax.set_yticks([])        
+        ax.spines['left'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+        ax.spines['top'].set_visible(False)                
+
+        #seg_coll = mc.LineCollection(segs,color='k',alpha=.7)
+        seg_coll = mc.LineCollection(segs,colors=ecolors,linewidths=3)
+        ax.add_collection(seg_coll)
+
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
+
 
     def cat_plot1(self,df_col,save=""):
         """
@@ -605,19 +896,44 @@ class mds2_plot:
         w = fac*8
         h = fac*7
 
-
         fig,ax = plt.subplots(figsize=(13,9.5))
 
 
         ax_dplot0(fig,ax,ux2,df_col,segs,e0,e1,map0)
 
         plt.tight_layout()
-        if save:
-            plt.savefig("save_"+df_col.name+".pdf",format="pdf")
+        if save != "":
+            plt.savefig(save+"catplot_"+df_col.name+".pdf",format="pdf")
         else:
             plt.show()
             
             
+    def cat_plot2(self,cat_dict=None,cat_values=None,save=""):
+
+        print(cat_dict)
+
+        ux2 = self.ux2
+        segs = self.segs
+        e0 = self.e0
+        e1 = self.e1
+
+
+        map0 = self.map0
+
+        fac = 1.0
+        w = fac*8
+        h = fac*7
+
+        fig,ax = plt.subplots(figsize=(13,9.5))
+
+
+        ax_dplot2(fig,ax,ux2,segs,e0,e1,map0,cat_dict=cat_dict,cat_values=cat_values)
+
+        plt.tight_layout()
+        if save != "":
+            plt.savefig(save+"catplot_"+df_col.name+".pdf",format="pdf")
+        else:
+            plt.show()
 
 
 
@@ -698,7 +1014,8 @@ def add_critical(df_seg0,segments):
 class mds_tree:
     def __init__(self,csk):
 
-        br_adj = csk.cg.br_adj
+        #br_adj = csk.cg.br_adj
+        br_adj = csk.br_adj
         crit_segs0 = {}
         self.csk = csk
 
@@ -718,8 +1035,11 @@ class mds_tree:
         self.endp,self.branchp = cpoints0(csk)
 
 
-    def mk_tree(self,seed=137,level=1,xfac=1.0,traj_markers=None):
+    def mk_tree(self,seed=137,level=1,xfac=1.0,traj_markers=None,mds_key='mds 0'):
+        self.mds_key = mds_key
 
+        print("mk_tree:", mds_key)
+        
         if not traj_markers:
             traj_markers = self.traj_markers
         df_seg0 = self.df_avg.loc[:,traj_markers]
@@ -736,6 +1056,7 @@ class mds_tree:
         crit_cells.sort()
 
         mds = mdsxx(self.df_avg,df_seg0,crit_cells,crit_edges,seed=137)
+        self.mds0 = mds
         #mds.plot0(nrow,ncol,clist)
 
         #tscale = 1
@@ -773,15 +1094,25 @@ class mds_tree:
 
         self.mds= mds
 
+        
+
         #save the mds coordinates
         self.write_mds2_coords()
 
 
     def write_mds2_coords(self):
+        coords_2d = self.csk.adata.uns['coords_2d']
+
+        if self.mds_key not in coords_2d.keys():
+            coords_2d[self.mds_key] = 1
+        
         mds = self.mds
         df_mds2 = pd.DataFrame(mds.ux2,columns=["mds1","mds2"],index=mds.map0)
+        self.csk.adata.uns[self.mds_key] = df_mds2        
         df_mds2.to_csv(self.csk.project_dir + "df_mds2.csv")
         self.csk.df_mds2 = df_mds2
+
+        self.csk.save_adata()
 
         
 

@@ -488,6 +488,16 @@ class pca_coords:
         uu = np.array(uu).T
         self.uu = uu
 
+
+    def save(self,transform):
+        #transform is a dictionary
+
+        transform['mu'] = self.mu
+        transform['kov'] = self.kov
+        transform['evals'] = self.evals
+        transform['evecs'] = self.evecs
+        transform['uu'] = self.uu
+
     def pca_df(self,tmark):
         nv = self.evecs.shape[1]
         cols = [str(i) for i in range(nv)]

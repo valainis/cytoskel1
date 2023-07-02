@@ -40,6 +40,8 @@ from .subway import *
 
 from .ofun import *
 
+from .gu import nn_neighbors,do_avg
+
 from collections import OrderedDict
 from matplotlib import cm
 
@@ -50,7 +52,8 @@ csk_ctx = mp.get_context("fork")
 
 import traceback
 
-def mk_adata(df,data_cols,cat_cols=[]):
+
+def mk_adata(df,data_cols,cat_cols=[],df_obs=None):
     """
     create AnnData object from typical mass cytometry
     data
@@ -58,15 +61,15 @@ def mk_adata(df,data_cols,cat_cols=[]):
     dfx = df.loc[:,data_cols]
     adata = ad.AnnData(dfx,dtype=dfx.values.dtype)
 
-    df_obs = df.drop(data_cols,axis=1)
+    if df_obs is None:
+        df_obs = df.drop(data_cols,axis=1)
 
-    for col in df_obs.columns:
-        if col in cat_cols:
-            df_obs[col] = df_mon[col].astype("category")
+        for col in df_obs.columns:
+            if col in cat_cols:
+                df_obs[col] = df_mon[col].astype("category")
 
     adata.obs = df_obs
     return adata
-
 
 
 def tumap_plot(X,segs,df,clist,skip=1,nrow=1,ncol=1):
@@ -136,7 +139,54 @@ def mk_submatrix(V,A):
     S = sp.coo_matrix( (B.data, (e0,e1)) , shape=A.shape).T
     S = S.tocsr()
     return S
-    
+
+def get_br_adj(csr_br):
+    lil_br = csr_br.tolil()
+    nnz_per_row = csr_br.getnnz(axis=1)
+    row_indices = np.where(nnz_per_row > 0)[0]
+    rows = lil_br.rows[row_indices]
+    br_adj = SortedDict(zip(row_indices,rows))
+    return br_adj
+
+
+def branch_csr0(paths,N):
+    #each path is SortedDict distance
+    #along path as key and cell as value
+
+    e0_tot = []
+    e1_tot = []
+    sdata_tot = []
+
+    #or make directed first???
+
+    #instead of using lists we could just add the individual sparse matrices
+    #for each path
+
+    for path in paths:
+        pnodes = path[0]
+        
+        e0 = pnodes[:-1]
+        e1 = pnodes[1:]
+
+        spath = np.array(path[1])
+        sdata = spath[1:] - spath[:-1]
+
+        e0_sym = np.concatenate( (e0,e1),dtype=int)
+        e1_sym = np.concatenate( (e1,e0),dtype=int)
+        sdata_sym = np.concatenate( (sdata,sdata))
+
+        e0_tot.append(e0_sym)
+        e1_tot.append(e1_sym)
+        sdata_tot.append(sdata_sym)
+
+    e0_tot = np.concatenate(e0_tot)
+    e1_tot = np.concatenate(e1_tot)
+    sdata_tot = np.concatenate(sdata_tot)
+
+    coo_br = sp.coo_matrix( (sdata_tot,(e0_tot,e1_tot)), shape=(N,N) )
+    csr_br = coo_br.tocsr()
+                              
+    return csr_br
 
 def branch_csr(paths,N):
     #each path is SortedDict distance
@@ -176,7 +226,6 @@ def branch_csr(paths,N):
     csr_br = coo_br.tocsr()
                               
     return csr_br
-
 
 
 def all_edges(N1):
@@ -603,15 +652,39 @@ def find_path(vsrc, mst_adj,mst_dist):
 
     br = SortedDict()
     br[cost[pcell]] = pcell
-    
+
+    path_cells = [pcell]
+    path_dist = [cost[pcell]]
     
     while parent[pcell] != -1:
         pcell = parent[pcell]
         br[cost[pcell]] = pcell
+        path_cells.append(pcell)
+        path_dist.append(cost[pcell])
+
+    path_dist = path_dist[::-1]
+    path_cells = path_cells[::-1]
 
     #br is SortedDict of cells along path
     #index is cost from src
-    return br
+    return br,path_cells,path_dist
+
+def find_path0(vsrc, mst_adj,mst_dist):
+    cost,parent = get_parents(vsrc,mst_adj,mst_dist)
+    pcell = np.argmax(cost)
+
+    path_cells = [pcell]
+    path_dist = [cost[pcell]]
+    
+    while parent[pcell] != -1:
+        pcell = parent[pcell]
+        path_cells.append(pcell)
+        path_dist.append(cost[pcell])
+
+    path_dist = path_dist[::-1]
+    path_cells = path_cells[::-1]
+
+    return path_cells,path_dist
 
 
 def pad_adj(a):
@@ -623,34 +696,69 @@ def find_branches(mst_adj,mst_dist,branchings,start):
     """ mst0 is min span tree"""
 
     paths = []
+    paths2 = []
 
     if start == -1:
         #find a good start cell
         v0set = [0]
-        br0 = find_path(v0set,mst_adj,mst_dist)
-        imax = br0.values()[-1]
+        br0,cells0,dist0 = find_path(v0set,mst_adj,mst_dist)
+        #imax = br0.values()[-1]
+        imax = cells0[-1]
     else:
         imax = start
         
     v0set = [imax]
     #br is a sortedDict of cells along path
     #index is cost from src    
-    br = find_path(v0set,mst_adj,mst_dist)
+    br,cells,dist = find_path(v0set,mst_adj,mst_dist)
 
     paths.append(br)
+    paths2.append((cells,dist))
     #print("br peek",br.peekitem(0),br.peekitem())
     vbr = br.values()
     ns = set()
 
+
     while branchings > 0:
         ns.update(vbr)
-        br = find_path(ns,mst_adj,mst_dist)
+        br,cells,dist = find_path(ns,mst_adj,mst_dist)
         #print(br.peekitem(0),br.peekitem())
         paths.append(br)
+        paths2.append((cells,dist))
         vbr = br.values()
         branchings -= 1
 
-    return paths
+    return paths,paths2
+
+
+def find_branches0(mst_adj,mst_dist,branchings,start):
+    """ mst0 is min span tree"""
+
+    paths2 = []
+
+    if start == -1:
+        #find a good start cell
+        v0set = [0]
+        cells0,dist0 = find_path0(v0set,mst_adj,mst_dist)
+        imax = cells0[-1]
+    else:
+        imax = start
+        
+    v0set = [imax]
+    cells,dist = find_path0(v0set,mst_adj,mst_dist)
+
+    paths2.append((cells,dist))
+    vbr = cells
+    ns = set()
+
+    while branchings > 0:
+        ns.update(vbr)
+        cells,dist = find_path0(ns,mst_adj,mst_dist)
+        paths2.append((cells,dist))
+        vbr = cells
+        branchings -= 1
+
+    return paths2
 
 
 def level_nn(X,lev0,k=10,nsegs=8):
@@ -861,8 +969,8 @@ def mk_tspace0(adata, traj_cols, l1_norm = True):
         ntdata = la.norm(X,ord=1,axis=1,keepdims=True)
         X /= ntdata
 
-    adata.uns['traj_cols'] = traj_cols
-    adata.obsm['traj_cols'] = X
+    adata.uns['traj_markers'] = traj_cols
+    adata.obsm['traj_coords'] = X
 
 
 
@@ -886,7 +994,8 @@ class cytoskel:
                mon_markers = [],
                l1_normalize = True,
                level_marker = None,
-               pca_dim = 0
+               pca_dim = 0,
+               df_obs = None
     ):
         
     
@@ -927,8 +1036,9 @@ class cytoskel:
 
         if self.avg_markers != []:
             data_cols = self.avg_markers
-            self.adata = mk_adata(self.df,data_cols)
+            self.adata = mk_adata(self.df,data_cols,df_obs=df_obs)
             self.adata.uns['avg_params'] = {}
+            self.adata.uns['coords_2d'] = {}
 
 
         else:
@@ -963,7 +1073,7 @@ class cytoskel:
 
             if self.adata is not None:
                 self.adata.uns['traj_markers'] = self.traj_markers 
-                self.adata.obsm['traj_markers'] = self.df_traj.values
+                self.adata.obsm['traj_coords'] = self.df_traj.values
                 self.adata.write_h5ad(project_dir+"adata.h5ad")            
         elif pca_dim > 0:
             x = self.df_traj.values
@@ -981,16 +1091,120 @@ class cytoskel:
 
     def create2(self,adata):
         self.adata = adata
+
+        if type(adata.X) == sp.csr_matrix:
+            X = adata.X.toarray()
+        else:
+            X = adata.X
+
+
+        df_data = pd.DataFrame(X,columns=adata.var_names)
+
+        
+        df_obs = adata.obs.copy()
+        df_obs.reset_index(inplace=True)
+
+        self.avg_markers = adata.var_names
+
+        self.mon_markers = []
+
+
+        self.df = pd.concat([df_data,df_obs],axis=1)
+
+        self.df.to_csv(self.project_dir+"mdata.csv",index=False)
+
+        self.markers = self.df.columns
+
+        
+
+        #dictionary for keeping track of coordinate sets
+        #used for constructing NN graph
+
+        
+
+        self.adata.uns['avg_params'] = {}
+        self.adata.uns['coords_2d'] = {}
+
+        self.adata.uns['pca_transform'] = {}
+        
+
         self.adata.write_h5ad(self.project_dir+"adata.h5ad")
 
-    def get_trajectory_coords(self,
+
+    def open2(self):
+        t0 = time.time()
+        try:
+            self.adata = ad.read_h5ad(self.project_dir+"adata.h5ad")
+        except:
+            return False
+
+        self.traj_markers = self.adata.uns['traj_markers']
+
+        csr_br = self.adata.obsp['csr_br']
+        self.csr_br = csr_br
+
+        #get the indices of the non-empty rows
+        nnz_per_row = csr_br.getnnz(axis=1)
+        row_indices = np.where(nnz_per_row > 0)[0]
+
+        lil_br = csr_br.tolil()
+
+        rows = lil_br.rows[row_indices]
+
+        self.br_adj = SortedDict(zip(row_indices,rows))
+
+        self.df_avg = self.adata.uns['df_avg']
+
+        self.df = self.adata.to_df()
+
+        cg = cgraph()
+        cg.get_reduced_graph(self.br_adj)
+        cg.forward_graph(cg.reduced_adj)
+        
+        self.cg = cg
+
+
+        vdir = self.project_dir + "pca_views/"
+        if not os.path.exists(vdir):
+            os.mkdir(vdir)
+
+        self.pca_views = vdir
+        
+        
+
+
+        #self.df_avg = pd.read_csv(self.project_dir+"avg_mdata.csv")
+        #self.adata.uns['df_avg'] = self.df_avg
+        #self.save_adata()
+        t1 = time.time()
+        #print("open time",t1 - t0)
+
+        return True
+
+
+    def mk_trajectory_coords(self,
                                   traj_markers,
                                   l1_normalize=True
                                   ):
         self.traj_markers = traj_markers
+        adata = self.adata
 
-        mk_tspace0(self.adata,traj_markers,l1_norm=l1_normalize)
-        
+        X = adata[:,traj_markers].X.copy()
+
+        #have to check if X is csr_matrix
+        if type(X) == sp.csr_matrix:
+            X = np.asarray(X.todense())
+        elif type(X) == np.ndarray:
+            pass
+
+        if l1_normalize:
+            ntdata = la.norm(X,ord=1,axis=1,keepdims=True)
+            X /= ntdata
+
+        adata.uns['traj_markers'] = traj_markers
+        adata.obsm['traj_coords'] = X
+
+        self.adata.write_h5ad(self.project_dir+"adata.h5ad")
 
     def open(self):
         t0 = time.time()
@@ -1097,9 +1311,20 @@ class cytoskel:
         if os.path.exists(project_dir+"adata.h5ad"):
             self.adata = ad.read_h5ad(project_dir+"adata.h5ad")
             print("read adata.h5ad")
+            if not 'coords_2d' in self.adata.uns.keys():
+                self.adata.uns['coords_2d'] = {}
+                print(type(self.adata.uns['coords_2d']))
+
+                #exit()
+                
+                if hasattr(self,"df_mds2"):
+                    self.adata.uns['coords_2d']["mds 0"] = 1
+                    self.adata.uns["mds 0"] = self.df_mds2
+                
         else:
             data_cols = self.avg_markers
             self.adata = mk_adata(self.df,data_cols)
+            
             self.adata.write_h5ad(project_dir+"adata.h5ad")
 
         t1 = time.time()
@@ -1296,11 +1521,13 @@ class cytoskel:
         write_sub_adj(br_adj,dir2+"br.adj")        
 
 
-    def subway(self,df_pcells):
-        sub = subway(self,df_pcells,[])
+    def subway(self,df_pcells,cat_dict=None,cat_values=None,cat_name=None):
+        sub = subway(self,df_pcells,[],cat_dict,cat_values,cat_name)
         sub.subway()
         fig = plt.figure(figsize=(14,6))
-        sub.draw_subway(fig)
+        #ax = fig.add_axes([.1,.05,.8,.9])
+        #sub.draw_subway2(fig,ax)
+        sub.draw_subway2(fig)
         plt.show()
 
 
@@ -1396,14 +1623,15 @@ class cytoskel:
         sp.save_npz(self.project_dir+"mst.npz",self.csr_mst)
 
 
-    def do_nn_graph(self,k):
+    def do_nn_graph(self,k=30,n_process=8):
         k = int(k)
-        nsegs = self.n_process
-        
+        nsegs = n_process
+
+        t0 = time.time()
         #knn = knn_graph(self.df_traj.values,self.df_traj.values,nsegs=nsegs)
         if self.adata is not None:
             print("knn on adata")
-            X = self.adata.obsm['traj_markers']
+            X = self.adata.obsm['traj_coords']
             knn = knn_graph(X,X,nsegs=nsegs)
         else:
             knn = knn_graph(self.X,self.X,nsegs=nsegs)
@@ -1417,14 +1645,101 @@ class cytoskel:
             self.adata.write_h5ad(self.project_dir+"adata.h5ad")                        
             
 
-        np.savez(self.project_dir+"nn0.npz",adj = self.adj, dist = self.dist)        
+        np.savez(self.project_dir+"nn0.npz",adj = self.adj, dist = self.dist)
 
+        t1 = time.time()
+
+        print("do_nn_graph time",t1-t0)
+
+
+    def do_nn_graph2(self,k=30,n_process=8,X=None):
+        k = int(k)
+        nsegs = n_process
+
+        t0 = time.time()
+        #knn = knn_graph(self.df_traj.values,self.df_traj.values,nsegs=nsegs)
+        print("knn on adata")
+        #X = self.adata.obsm['traj_coords']
+        knn = knn_graph(X,X,nsegs=nsegs)
+
+        knn.run(k)
+        self.adj = knn.ind[:,1:]
+        self.dist = knn.dist[:,1:]
+
+
+        self.adata.obsm['knn_adj'] = self.adj
+        self.adata.obsm['knn_dist'] = self.dist
+        self.adata.write_h5ad(self.project_dir+"adata.h5ad")                        
+
+        np.savez(self.project_dir+"nn0.npz",adj = self.adj, dist = self.dist)
+
+        t1 = time.time()
+
+        print("do_nn_graph time",t1-t0)
+
+
+        
 
     def do_density(self):
         self.density = 1.0/(self.dist[:,0] + 1e-2)
         df_density = pd.DataFrame(self.density,columns=['density'])
         #df_density.to_csv(self.project_dir+'density.csv')
         return df_density
+
+    def do_mst_graph0(self):
+        mst0 = mst(self.adj, self.dist)
+        self.csr_mst = mst0.csr_mst
+        sp.save_npz(self.project_dir+"nn.npz",mst0.csr_nn)
+        self.csr_nn = mst0.csr_nn
+
+        ltmp = self.csr_mst.tolil()
+
+        self.mst_adj = ltmp.rows
+        self.mst_dist = ltmp.data
+
+        #write the graph data here
+        write_full_adj(self.mst_adj,self.project_dir+"mst.adj")
+        sp.save_npz(self.project_dir+"mst.npz",self.csr_mst)
+        
+
+        if self.adata is not None:
+            self.adata.obsp['csr_nn'] = self.csr_nn
+            self.adata.obsp['csr_mst'] = self.csr_mst            
+            self.adata.write_h5ad(self.project_dir+"adata.h5ad")
+
+        print("mst graph done")
+    
+
+    def do_mst_graph1(self,sindex=0,tversion=None):
+        adj = self.adj[:,sindex:]
+        dist = self.dist[:,sindex:]
+
+        print("ADJ",adj.shape,"sindex",sindex)
+
+        mst0 = mst(adj, dist)
+        self.csr_mst = mst0.csr_mst
+        sp.save_npz(self.project_dir+"nn.npz",mst0.csr_nn)
+        self.csr_nn = mst0.csr_nn
+
+
+        
+        #write the graph data here
+        #write_full_adj(self.mst_adj,self.project_dir+"mst.adj")
+        #sp.save_npz(self.project_dir+"mst.npz",self.csr_mst)
+        
+
+        self.adata.obsp['csr_nn'] = self.csr_nn
+        self.adata.obsp['csr_mst'] = self.csr_mst
+
+        if tversion is not None:
+            tversion['csr_nn'] = mst0.csr_nn
+            tversion['csr_mst'] = mst0.csr_mst           
+
+        self.save_adata()
+
+        
+
+        print("do_mst_graph1 done")
 
 
     def do_mst_graph(self):
@@ -1439,7 +1754,140 @@ class cytoskel:
             self.adata.write_h5ad(self.project_dir+"adata.h5ad")
 
         print("mst graph done")
+
+
+    def get_br_adj0(self,key=None):
+        if not key:
+
+            lil_br = self.csr_br.tolil()
+            nnz_per_row = self.csr_br.getnnz(axis=1)
+            row_indices = np.where(nnz_per_row > 0)[0]
+            rows = lil_br.rows[row_indices]
+            br_adj = SortedDict(zip(row_indices,rows))
+            return br_adj
+
+
+    def restore_tversion(self,tname):
+        tv = self.adata.uns['tversions'][tname]
+
+        csr_br = tv['csr_br']
+        self.csr_br = csr_br
+
+        #get the indices of the non-empty rows
+        nnz_per_row = csr_br.getnnz(axis=1)
+        row_indices = np.where(nnz_per_row > 0)[0]
+
+        lil_br = csr_br.tolil()
+
+        rows = lil_br.rows[row_indices]
+
+        self.br_adj = SortedDict(zip(row_indices,rows))
+
+        self.df_avg = tv['df_avg']
+
+        cg = cgraph()
+        cg.get_reduced_graph(self.br_adj)
+        cg.forward_graph(cg.reduced_adj)
+
+        self.cg = cg
         
+
+
+    def do_branches1(self,start=-1,branchings=4,tversion=None):
+        print("do_branches1")
+        t0 = time.time()
+
+        start = int(start)
+        branchings = int(branchings)
+
+        if tversion is not None:
+            csr_mst = tversion['csr_mst']
+        else:
+            csr_mst = self.adata.obsp['csr_mst']
+
+        ltmp = self.csr_mst.tolil()
+
+        self.mst_adj = ltmp.rows
+        self.mst_dist = ltmp.data
+
+
+        paths = find_branches0(self.mst_adj,self.mst_dist,branchings,start)
+
+        self.paths = paths
+
+        self.csr_br = branch_csr0(paths,self.adata.shape[0])
+
+        self.br_adj = get_br_adj(self.csr_br)
+
+        t1 = time.time()
+        print("do branches1 time", t1 - t0)
+
+        if tversion is not None:
+            tversion['csr_br'] = self.csr_br
+        
+
+        self.adata.obsp['csr_br'] = self.csr_br
+        #self.adata.write_h5ad(self.project_dir+"adata.h5ad")
+        self.save_adata()
+
+
+    def do_branches0(self,start=-1,branchings=4):
+        t0 = time.time()
+
+        start = int(start)
+        branchings = int(branchings)
+
+        csr_mst = self.csr_mst
+
+        ltmp = self.csr_mst.tolil()
+
+        self.mst_adj = ltmp.rows
+        self.mst_dist = ltmp.data
+
+
+        paths = find_branches0(self.mst_adj,self.mst_dist,branchings,start)
+
+        self.paths = paths
+
+        print(type(paths[0]))
+
+        #self.csr_br = branch_csr(paths,self.adata.shape[0])
+
+        self.csr_br = branch_csr0(paths,self.adata.shape[0])
+
+        #self.br_adj = branch_adj2(paths)
+
+        """
+        lil_br = self.csr_br.tolil()
+        nnz_per_row = self.csr_br.getnnz(axis=1)
+        row_indices = np.where(nnz_per_row > 0)[0]
+        rows = lil_br.rows[row_indices]
+        self.br_adj = SortedDict(zip(row_indices,rows))
+        """
+
+        self.br_adj = get_br_adj(self.csr_br)
+
+        t1 = time.time()
+        print("do branches0 time", t1 - t0)
+        
+        if self.adata is not None:
+            print("do branches")
+            #self.adata.uns['paths'] = paths
+            self.adata.obsp['csr_br'] = self.csr_br
+            #self.adata.uns['br_adj'] = self.br_adj #this cannot be done, write breaks
+            self.adata.write_h5ad(self.project_dir+"adata.h5ad")                                   
+
+        print("do branches 2")            
+        cg = cgraph()
+        cg.get_reduced_graph(self.br_adj)
+        self.cg = cg
+        self.dump_cg()
+
+        write_sub_adj(self.br_adj,self.project_dir+"br.adj")
+        sp.save_npz(self.project_dir+"csr_br.npz",self.csr_br)
+
+
+
 
 
         
@@ -1454,7 +1902,7 @@ class cytoskel:
         self.write_params()
 
 
-        paths = find_branches(self.mst_adj,self.mst_dist,branchings,start)
+        paths,paths2 = find_branches(self.mst_adj,self.mst_dist,branchings,start)
 
         self.paths = paths
 
@@ -1467,7 +1915,7 @@ class cytoskel:
             #self.adata.uns['paths'] = paths
             self.adata.obsp['csr_br'] = self.csr_br
             #self.adata.uns['br_adj'] = self.br_adj
-            self.adata.write_h5ad(self.project_dir+"adata.h5ad")                                    
+            self.adata.write_h5ad(self.project_dir+"adata.h5ad")                                   
 
         print("do branches 2")            
         cg = cgraph()
@@ -1593,6 +2041,134 @@ class cytoskel:
 
     do_mst_averaging = get_average_fix #set an alias with a better name
 
+
+    def mk_averaging_matrix1(self,radius=5,tversion=None):
+        t0 = time.time()
+
+        if tversion is not None:
+            csr_mst = tversion['csr_mst']
+        else:
+            csr_mst = self.adata.obsp['csr_mst']
+
+        deg,csr_avg = nn_neighbors(csr_mst,nn=radius)
+
+        if tversion is not None:
+            tversion['csr_avg'] = csr_avg
+
+        self.adata.obsp['csr_avg'] = csr_avg
+
+        self.save_adata()
+
+        t1 = time.time()
+
+        print("mk_averaging_matrix time",t1-t0)
+
+
+    def mk_averaging_matrix(self,radius=5):
+        t0 = time.time()
+
+
+        csr_mst = self.adata.obsp['csr_mst']
+
+        deg,csr_avg = nn_neighbors(csr_mst,nn=radius)
+
+        self.adata.obsp['csr_avg'] = csr_avg
+
+        self.save_adata()
+
+        t1 = time.time()
+
+        print("mk_averaging_matrix time",t1-t0)
+
+
+
+    def do_averaging1(self,navg=5,tversion=None):
+        t0 = time.time()
+        if tversion is not None:
+            csr_avg = tversion['csr_avg']
+        else:
+            csr_avg = self.adata.obsp['csr_avg']
+        adata = self.adata
+
+        if type(adata.X) == sp.csr_matrix:
+            X = adata.X.toarray()
+        else:
+            X = adata.X
+
+
+        print("X",X.shape)
+
+        Xavg = do_avg(X,csr_avg,navg=navg)
+
+        self.df_avg = pd.DataFrame(Xavg,columns=self.adata.var_names)
+
+        self.adata.uns['df_avg'] = self.df_avg
+
+        if tversion is not None:
+            tversion['df_avg'] = self.df_avg
+
+        self.df_avg.to_csv(self.project_dir + "avg_mdata.csv",index=False)
+
+        self.save_adata()        
+
+        t1 = time.time()
+
+        print("do_averaging time",t1-t0)
+        
+
+
+    def do_averaging(self,navg=5):
+        t0 = time.time()
+        csr_avg = self.adata.obsp['csr_avg']
+        adata = self.adata
+
+        if type(adata.X) == sp.csr_matrix:
+            X = adata.X.toarray()
+        else:
+            X = adata.X
+
+
+        print("X",X.shape)
+
+        Xavg = do_avg(X,csr_avg,navg=navg)
+
+        self.df_avg = pd.DataFrame(Xavg,columns=self.adata.var_names)
+
+        self.adata.uns['df_avg'] = self.df_avg
+
+        self.df_avg.to_csv(self.project_dir + "avg_mdata.csv",index=False)
+
+        self.save_adata()        
+
+        t1 = time.time()
+
+        print("do_averaging time",t1-t0)
+
+
+    def do_averaging2(self,A,df0,navg=5,df0_key=None):
+        #A is the averaging matrix
+        #df0 is dataframe for markers to average
+        t0 = time.time()
+
+        X = df0.values
+        print("X",X.shape)
+
+        Xavg = do_avg(X,A,navg=navg)
+
+        df_avg = pd.DataFrame(Xavg,columns=df0.columns,index = df0.index)
+
+        if df0_key is not None:
+            self.adata.uns['avg_'+df0_key] = df_avg
+            self.save_adata()        
+
+        t1 = time.time()
+
+        print("do_averaging2 time",t1-t0)
+
+        return df_avg
+
+
+        
     def link(self,gcol,k_intra=10,k_inter=1,
                  glist = [],
                  n_process=8):
@@ -1619,6 +2195,10 @@ class cytoskel:
         intra_dk = []
         dk_links = []
         intra_mst = []
+
+        if self.adata is not None:
+            self.X = self.adata.obsm['traj_coords']
+        
 
         N = self.X.shape[0]
         fadj = np.full( (N,k_intra),-1,dtype=np.int)
@@ -1679,6 +2259,12 @@ class cytoskel:
             dk_append(dk0,dk)
 
         self.csr_mst = dk0.tocsr()
+
+        if self.adata is not None:
+            #self.adata.obsp['csr_nn'] = self.csr_nn
+            self.adata.obsp['csr_mst'] = self.csr_mst            
+            self.save_adata()
+        
 
         #add this for find_branches
         ltmp = self.csr_mst.tolil()
@@ -1859,8 +2445,8 @@ class cytoskel:
 
         same = True
         for v in br0_adj.keys():
-            adjv0 = br0_adj[v]
-            adjv = br_adj[v]
+            adjv0 = set(br0_adj[v])
+            adjv = set( br_adj[v])
             same = adjv0 == adjv
             if not same: break
 

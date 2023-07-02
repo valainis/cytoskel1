@@ -685,7 +685,6 @@ class cgraph:
 
         if start == None:
             #pick an arbitrary end for start
-            print("using bpnts")
             start = bpnts[1][0]
 
         #print("bpnts",bpnts)
@@ -765,8 +764,6 @@ class cgraph:
                 start  = self.start
             else:
                 start = self.bpnts[1][0]
-
-        print("forward graph",start)
 
         self.start = start
 
