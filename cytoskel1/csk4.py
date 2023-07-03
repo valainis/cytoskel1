@@ -1623,26 +1623,35 @@ class cytoskel:
         sp.save_npz(self.project_dir+"mst.npz",self.csr_mst)
 
 
-    def do_nn_graph(self,k=30,n_process=8):
+    def do_nn_graph(self,k=30,n_process=8,use_para=False):
         k = int(k)
         nsegs = n_process
 
         t0 = time.time()
-        #knn = knn_graph(self.df_traj.values,self.df_traj.values,nsegs=nsegs)
-        if self.adata is not None:
-            print("knn on adata")
-            X = self.adata.obsm['traj_coords']
-            knn = knn_graph(X,X,nsegs=nsegs)
-        else:
-            knn = knn_graph(self.X,self.X,nsegs=nsegs)
-        knn.run(k)
-        self.adj = knn.ind[:,1:]
-        self.dist = knn.dist[:,1:]
 
-        if self.adata is not None:
-            self.adata.obsm['knn_adj'] = self.adj
-            self.adata.obsm['knn_dist'] = self.dist
-            self.adata.write_h5ad(self.project_dir+"adata.h5ad")                        
+        X = self.adata.obsm['traj_coords']        
+
+        if use_para:
+            print("running para")
+            knnh = knn_para()
+            n_col = 30
+            knnh.run(X,n_col,kruns=4)
+
+            self.adj = knnh.I[:,1:]
+            nn_dist2 = knnh.D[:,1:]
+            self.dist = np.sqrt(nn_dist2)
+        else:
+            print("running graph")
+            knn = knn_graph(X,X,nsegs=nsegs)
+            knn.run(k)
+            
+            self.adj = knn.ind[:,1:]
+            self.dist = knn.dist[:,1:]
+
+
+        self.adata.obsm['knn_adj'] = self.adj
+        self.adata.obsm['knn_dist'] = self.dist
+        self.adata.write_h5ad(self.project_dir+"adata.h5ad")                        
             
 
         np.savez(self.project_dir+"nn0.npz",adj = self.adj, dist = self.dist)
