@@ -37,6 +37,7 @@ import numpy as np
 import numpy.linalg as la
 
 import cytoskel1 as csk1
+from cytoskel1.qlist import *
 
 from vtk.util import numpy_support as ns
 from sklearn.decomposition import NMF
@@ -546,6 +547,96 @@ def do_color2(mwin,mode_changed=False):
     mwin.vtkWidget.GetRenderWindow().Render()
     
 
+def do_qcolor2(mwin):
+    print("do_qcolor2")
+
+    mode_changed = mwin.mode_changed
+
+    do_vpts2 = mwin.do_vpts2
+    
+    iren2 = mwin.vtkWidget.GetRenderWindow().GetInteractor()
+
+    if not hasattr(mwin,"vpts"):
+        print("no data")
+        return
+
+    map0 = mwin.vpts.map0
+    dfm = mwin.df_info.loc[map0,:]
+
+    print("do_qcolor2")
+
+
+
+    if not hasattr(mwin,'m'):
+        return
+
+    print("mwin.m is",mwin.m)
+
+    m = mwin.m
+    colors = dfm.loc[:,m].values
+
+
+
+    cmap = mpl.cm.get_cmap('jet')
+
+    vmin = np.amin(colors)
+    vmax = np.amax(colors)
+
+    mwin.c0.cbar(vmin,vmax)
+    mwin.c0.cb.set_label(m)
+    mwin.c0.draw()
+
+
+    #colors = colors/np.amax(colors)
+
+    #fixed as in vpara
+    colors = (colors - vmin)/(vmax-vmin)    
+
+    colors8 = cmap(colors,bytes=True)
+
+    scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+
+    #this works
+    mwin.vpts.p_data.GetPointData().RemoveArray('col8')
+
+    scol8.SetName('col8')
+    mwin.vpts.p_data.GetPointData().AddArray(scol8)
+
+
+    if do_vpts2:
+        df2 = mwin.df_skip
+        colors2 = df2.loc[:,m].values
+        colors2 = colors2/vmax
+        colors8_2 = cmap(colors2,bytes=True)
+
+        colors8_2 = colors8_2
+
+        #this must be the alpha ?
+        #colors8_2[:,3] = 32
+        #colors8_2[:,3] = 16
+        colors8_2[:,3] = 8
+        
+        scol8_2 = ns.numpy_to_vtk(num_array=colors8_2, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
+
+        mwin.vpts2.p_data.GetPointData().RemoveArray('col8')
+        scol8_2.SetName('col8')
+        mwin.vpts2.p_data.GetPointData().AddArray(scol8_2)
+        mwin.ren.AddActor(mwin.vpts2.actor)
+        mwin.vpts2_actor = True
+        print("added scol8_2")
+
+    else:
+        if mwin.vpts2_actor:
+            mwin.ren.RemoveActor(mwin.vpts2.actor)
+            mwin.vpts2_actor = False
+        
+    #ok this works, can add and remove actors at will
+    #test
+    #mwin.ren.RemoveActor(mwin.vpts2.actor)
+
+    mwin.vtkWidget.GetRenderWindow().Render()
+
+
 
 class vpoints:
     def __init__(self,data,rscale):
@@ -716,6 +807,7 @@ class MainWindow(QMainWindow):
         
         self.actionMenu = self.menuBar().addMenu("&Action")
         self.actionMenu.addAction(self.color_action)
+        self.actionMenu.addAction(self.qcolor_action)
         self.actionMenu.addAction(self.slide_action)
         self.actionMenu.addAction(self.camera_info_action)
         self.actionMenu.addAction(self.get_view_action)                
@@ -728,6 +820,7 @@ class MainWindow(QMainWindow):
         self.open_project_action = QAction("&Open Project...", self,triggered=self.open_project)
         
         self.color_action = QAction("&Color", self, triggered=self.do_color)
+        self.qcolor_action = QAction("&QColor", self, triggered=self.do_qcolor)        
         self.slide_action = QAction("Size", self, triggered=self.do_slide)
 
         self.mode1_action = QAction("View", self, triggered=self.do_mode1)
@@ -883,6 +976,31 @@ class MainWindow(QMainWindow):
         do_color2(self,mode_changed)
         
 
+    def do_qcolor(self,mode_changed=False):
+        if 'cloud' in self.mlist:
+            self.do_vpts2 = True           
+        else:
+            self.do_vpts2 = False
+
+        self.mode_changed = mode_changed
+
+        if not mode_changed:
+
+            mwin = self
+
+            #mwin.csk.df_avg2 = mwin.csk.df_avg.copy()
+
+            qlis = Dialog_tview(mwin,df_avg=mwin.csk.df_avg,apply_func=do_qcolor2)
+
+            qlis.resize(300,500)
+            qlis.setModal(False)
+            #qlis.exec_() #for modal
+            qlis.show()
+        
+            
+        do_qcolor2(self)
+
+
     def do_color0(self):
         iren2 = self.vtkWidget.GetRenderWindow().GetInteractor()
 
@@ -965,6 +1083,9 @@ class MainWindow(QMainWindow):
         if pdir == "" or pdir == None: return
 
         self.dir_name = pdir
+
+        if hasattr(self,'m'):
+            delattr(self,'m')
 
         csk = csk1.cytoskel(pdir)
         #if not csk.open():
