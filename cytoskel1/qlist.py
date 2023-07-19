@@ -304,11 +304,10 @@ class Dialog_02(QDialog):
 
 
 class Dialog_tview(QDialog):
-    def __init__(self,parent=None,df_avg=None,apply_func=None):
+    def __init__(self,parent=None,name_list=[],df_avg=None,apply_func=None):
         super().__init__(parent)
 
-        self.name_list = []
-
+        self.name_list = name_list
         self.apply_func = apply_func
         
         self.listItems={}
@@ -331,11 +330,6 @@ class Dialog_tview(QDialog):
 
         self.lwA = self.listWidgetA
 
-        #qitem = QListWidgetItem("curvature", self.lwA)
-        #self.items0.append(qitem)
-
-        #for m in self.csk.markers:
-        #for m in self.csk.df_avg2.columns:
         for m in df_avg.columns:
             qitem = QListWidgetItem( m, self.listWidgetA )
             self.items0.append(qitem)
@@ -353,10 +347,10 @@ class Dialog_tview(QDialog):
 
         snames = list(df_avg.columns)
 
-        for m in self.name_list[::-1]:
+        #for m in self.name_list[::-1]:
+        for m in self.name_list:        
             qitem = QListWidgetItem( m, self.listWidgetB )
             self.items0.append(qitem)
-        
 
         self.listWidgetA.iden = "A"
         self.listWidgetB.iden = "B"
@@ -372,7 +366,6 @@ class Dialog_tview(QDialog):
     def draw0(self):
 
         n_items = self.listWidgetB.count()
-        print("draw0 n_items",n_items)
         lwb = self.listWidgetB        
 
         items = []
@@ -380,19 +373,16 @@ class Dialog_tview(QDialog):
             items.append(lwb.item(index).text())
 
         if len(items) == 0:
-            print("items len 0")
             return
 
         eb = self.parent()
 
         self.name_list.clear()
-        self.name_list.extend(items[::-1])
+        self.name_list.extend(items[::-1]) #?
 
-        self.mwin.m = self.name_list[0]
+        self.mwin.m = self.name_list[-1]
+        self.mwin.mlist = self.name_list[::-1]
 
-        print("set mwin.m",self.mwin.m)
-
-        print("qlist apply",eb.csk.cg.start)
         if self.apply_func is not None:
             #eb.subway_canvas.compute_initial_figure()
             self.apply_func(self.mwin)
@@ -407,7 +397,8 @@ class Dialog_tview(QDialog):
         pass
 
     def item_clicked(self, arg):
-        print("clicked",arg)
+        #print("clicked",arg)
+        pass
 
 
                 
