@@ -2,7 +2,6 @@
 import os
 
 import vtk
-import numpy as np
 import time
 
 import ast
@@ -11,6 +10,7 @@ from sortedcontainers import SortedDict
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
+from matplotlib.patches import Patch
 
 from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 from PyQt5 import QtCore, QtGui, uic, QtWidgets
@@ -18,13 +18,6 @@ from PyQt5 import QtCore, QtGui, uic, QtWidgets
 from PyQt5.QtCore import pyqtSignal, QPoint, QSize, Qt
 
 from PyQt5.QtWidgets import *
-"""
-from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QFrame,
-        QPlainTextEdit, QLabel, QMainWindow, QMenu, QMessageBox, QSizePolicy,
-        QVBoxLayout, QWidget, QHBoxLayout, QOpenGLWidget, QSlider,QDialog,
-        QFileDialog,QGridLayout,QGroupBox,QCheckBox,QPushButton,QLineEdit,QComboBox,
-        QRadioButton,QDockWidget)
-"""
 
 from PyQt5.QtGui import QKeySequence,QFont, QColor,QDoubleValidator
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -35,6 +28,7 @@ import pandas as pd
 
 import numpy as np
 import numpy.linalg as la
+import scipy.sparse as sp
 
 import cytoskel1 as csk1
 from cytoskel1.qlist import *
@@ -52,7 +46,7 @@ class InteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         self.r0 = vpts.r0
         self.glyphs = vpts.glyph
         #self.renderer = renderer
-        self.renderer = pobj.ren
+        self.renderer = pobj.ren0
         #self.AddObserver("LeftButtonPressEvent", self._left_button_press_event)
         self.AddObserver("RightButtonPressEvent", self._right_button_press_event)
         self.map0 = vpts.map0
@@ -243,6 +237,11 @@ class MRad00(QDialog):
 
 
 class MRad(QDialog):
+    """
+    choose one out of a set of alterntives
+    result in parent.m
+    not used currently in tview2.py
+    """
     def __init__(self,parent=None,markers=[]):
         super().__init__(parent)
         p = self.parent()
@@ -335,7 +334,7 @@ class MCheck(QDialog):
             radio_buttons.append(cb)
             glay.addWidget(cb,i,0)
 
-            if m in p.mlist:
+            if m in p.mlist2:
                 cb.setChecked(True)
             else:
                 cb.setChecked(False)
@@ -349,16 +348,16 @@ class MCheck(QDialog):
 
         p = self.parent()
 
-        mlist = []
+        mlist2 = []
         for i,box in enumerate(self.radio_buttons):
             if box.isChecked():
                 m = self.markers[i]
-                mlist.append(m)
+                mlist2.append(m)
 
-        p.mlist = mlist
+        p.mlist2 = mlist2
         self.close()
 
-        p.do_color(mode_changed=True)
+        p.do_qcolor(mode_changed=True)
 
 
 
@@ -403,7 +402,7 @@ class MSlide(QDialog):
 
       mwin = self.parent()
       #mwin.do_radius(mwin.vpts,rad)
-      do_radius2(mwin,mwin.vpts,rad)
+      do_radius2(mwin,rad)
         
     def apply(self):
         self.close()
@@ -428,9 +427,33 @@ class canvas0(FigureCanvas):
 
     def cbar(self,vmin,vmax):
         self.ax.clear()
-        cmap = mpl.cm.get_cmap('jet')
+        cmap = mpl.cm.get_cmap(self.parent.cmap)
         norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)        
         self.cb = self.fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap),cax=self.ax, orientation='vertical')
+
+    def cat_legend(self,leg_colors,rdict):
+        self.ax.clear()
+        self.ax.axis('off')
+        
+        n = leg_colors.shape[0]
+        elements = []
+
+        for i in range(n):
+            c = leg_colors[i]
+            label = rdict[i]
+            patch = Patch(facecolor = c, label = label)
+            elements.append(patch)
+
+        self.ax.legend(handles=elements, loc = (-.1,.3),bbox_to_anchor=[0,0,1,1])
+
+
+        
+    def clear(self):
+        self.fig.clear()
+        ax = self.fig.add_subplot(111)
+        self.fig.subplots_adjust(bottom=0.05,right=.5)        
+        self.ax = ax
+        self.ax.axis('off')
 
 
     def sizeHint(self):
@@ -438,8 +461,26 @@ class canvas0(FigureCanvas):
 
 
     
-def do_radius2(mwin,vpts,rad=.12):
-    iren2 = mwin.vtkWidget.GetRenderWindow().GetInteractor()
+def do_radius2(mwin,rad=.12):
+    r0 = rad
+
+    for vpts in mwin.vpts_list:
+        npnts = vpts.data.shape[0]        
+        rscale = np.full(npnts,r0)
+
+        srad = ns.numpy_to_vtk(num_array=rscale, deep=True, array_type=vtk.VTK_FLOAT)
+        srad.SetName('scales')        
+
+        vpts.p_data.GetPointData().RemoveArray('scales')
+
+        vpts.p_data.GetPointData().AddArray(srad)
+        vpts.p_data.GetPointData().SetActiveScalars("scales") #radius first        
+
+    mwin.vtkWidget.GetRenderWindow().Render()
+
+
+def do_radius0(mwin,vpts,rad=.12):
+    #iren2 = mwin.vtkWidget.GetRenderWindow().GetInteractor()
     r0 = rad
 
     npnts = vpts.data.shape[0]        
@@ -458,152 +499,81 @@ def do_radius2(mwin,vpts,rad=.12):
 
 
 
+def mk_color(mwin,vpts,c0,m):
+    map0 = vpts.map0
+    #dfm = mwin.df_info.loc[map0,:]
+    dfm = mwin.df_tot.loc[map0,:]
 
-def do_color2(mwin,mode_changed=False):
-
-    do_vpts2 = mwin.do_vpts2
-    
-    iren2 = mwin.vtkWidget.GetRenderWindow().GetInteractor()
-
-    if not hasattr(mwin,"vpts"):
-        print("no data")
-        return
-
-    map0 = mwin.vpts.map0
-    dfm = mwin.df_info.loc[map0,:]
-
-    print("do_color2")
-
-
-    if not mode_changed:
-        dlg = MRad(mwin,list(dfm.columns))
-        dlg.setWindowTitle("marker")
-        dlg.move(50,50)
-        dlg.exec_()
-
-
-    m = mwin.m
     colors = dfm.loc[:,m].values
-
-
-
-    cmap = mpl.cm.get_cmap('jet')
+    cmap = mpl.cm.get_cmap(mwin.cmap)
 
     vmin = np.amin(colors)
     vmax = np.amax(colors)
 
-    mwin.c0.cbar(vmin,vmax)
-    mwin.c0.cb.set_label(m)
-    mwin.c0.draw()
+    colors = (colors - vmin)/(vmax-vmin)    
+    colors8 = cmap(colors,bytes=True)            
+
+    if m not in mwin.cat_rdicts:
+        c0.cbar(vmin,vmax)
+        c0.cb.set_label(m)
+        c0.draw()
 
 
-    #colors = colors/np.amax(colors)
+    else:
+        rdict = mwin.cat_rdicts[m]
+        n = len(rdict)
+        leg_colors = np.arange(n)
+        leg_colors = (leg_colors - vmin)/(vmax - vmin)
+        leg_colors = cmap(leg_colors)
+        
+        c0.cat_legend(leg_colors,rdict)
+        c0.draw()
+
 
     #fixed as in vpara
-    colors = (colors - vmin)/(vmax-vmin)    
-
-    colors8 = cmap(colors,bytes=True)
-
+    #colors = (colors - vmin)/(vmax-vmin)    
+    #colors8 = cmap(colors,bytes=True)
     scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
 
     #this works
-    mwin.vpts.p_data.GetPointData().RemoveArray('col8')
-
+    vpts.p_data.GetPointData().RemoveArray('col8')
     scol8.SetName('col8')
-    mwin.vpts.p_data.GetPointData().AddArray(scol8)
-
-
-    if do_vpts2:
-        df2 = mwin.df_skip
-        colors2 = df2.loc[:,m].values
-        colors2 = colors2/vmax
-        colors8_2 = cmap(colors2,bytes=True)
-
-        colors8_2 = colors8_2
-
-        #this must be the alpha ?
-        #colors8_2[:,3] = 32
-        #colors8_2[:,3] = 16
-        colors8_2[:,3] = 8
-        
-        scol8_2 = ns.numpy_to_vtk(num_array=colors8_2, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
-
-        mwin.vpts2.p_data.GetPointData().RemoveArray('col8')
-        scol8_2.SetName('col8')
-        mwin.vpts2.p_data.GetPointData().AddArray(scol8_2)
-        mwin.ren.AddActor(mwin.vpts2.actor)
-        mwin.vpts2_actor = True
-        print("added scol8_2")
-
-    else:
-        if mwin.vpts2_actor:
-            mwin.ren.RemoveActor(mwin.vpts2.actor)
-            mwin.vpts2_actor = False
-        
-    #ok this works, can add and remove actors at will
-    #test
-    #mwin.ren.RemoveActor(mwin.vpts2.actor)
-
-    mwin.vtkWidget.GetRenderWindow().Render()
+    vpts.p_data.GetPointData().AddArray(scol8)
     
 
-def do_qcolor2(mwin):
-    print("do_qcolor2")
+def do_qcolor2(mwin,msrc=None):
+    print("do_qcolor2 x")
 
     mode_changed = mwin.mode_changed
 
     do_vpts2 = mwin.do_vpts2
     
-    iren2 = mwin.vtkWidget.GetRenderWindow().GetInteractor()
+    #iren2 = mwin.vtkWidget.GetRenderWindow().GetInteractor()
 
     if not hasattr(mwin,"vpts"):
         print("no data")
         return
 
-    map0 = mwin.vpts.map0
-    dfm = mwin.df_info.loc[map0,:]
+    c0 = mwin.c00[0]
 
-    print("do_qcolor2")
-
-
-
-    if not hasattr(mwin,'m'):
+    if not len(mwin.mlist) > 0:
         return
-
-    print("mwin.m is",mwin.m)
-
-    m = mwin.m
-    colors = dfm.loc[:,m].values
-
+    else:
+        m = mwin.mlist[0]
+    
+    imin = np.min((2,len(mwin.mlist)))
 
 
-    cmap = mpl.cm.get_cmap('jet')
-
-    vmin = np.amin(colors)
-    vmax = np.amax(colors)
-
-    mwin.c0.cbar(vmin,vmax)
-    mwin.c0.cb.set_label(m)
-    mwin.c0.draw()
+    print("mlist",mwin.mlist)
 
 
-    #colors = colors/np.amax(colors)
 
-    #fixed as in vpara
-    colors = (colors - vmin)/(vmax-vmin)    
-
-    colors8 = cmap(colors,bytes=True)
-
-    scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
-
-    #this works
-    mwin.vpts.p_data.GetPointData().RemoveArray('col8')
-
-    scol8.SetName('col8')
-    mwin.vpts.p_data.GetPointData().AddArray(scol8)
+    for i in range(imin):
+        mk_color(mwin,mwin.vpts_list[i],mwin.c00[i],mwin.mlist[i])
 
 
     if do_vpts2:
+        """
         df2 = mwin.df_skip
         colors2 = df2.loc[:,m].values
         colors2 = colors2/vmax
@@ -621,18 +591,19 @@ def do_qcolor2(mwin):
         mwin.vpts2.p_data.GetPointData().RemoveArray('col8')
         scol8_2.SetName('col8')
         mwin.vpts2.p_data.GetPointData().AddArray(scol8_2)
-        mwin.ren.AddActor(mwin.vpts2.actor)
+        """
+
+        for i,ren0 in enumerate(mwin.ren):
+            ren0.AddActor(mwin.vpts2.actor)
         mwin.vpts2_actor = True
-        print("added scol8_2")
 
     else:
         if mwin.vpts2_actor:
-            mwin.ren.RemoveActor(mwin.vpts2.actor)
+            for i,ren0 in enumerate(mwin.ren):
+                ren0.RemoveActor(mwin.vpts2.actor)
             mwin.vpts2_actor = False
         
     #ok this works, can add and remove actors at will
-    #test
-    #mwin.ren.RemoveActor(mwin.vpts2.actor)
 
     mwin.vtkWidget.GetRenderWindow().Render()
 
@@ -738,12 +709,24 @@ class vpoints:
 
 class MainWindow(QMainWindow):
 
-    def __init__(self, parent = None):
+    def __init__(self, parent = None,n_win=2,argv=None):
         QMainWindow.__init__(self, parent)
 
+        #self.cmap = 'YlGn'
+        self.cmap = 'jet'
+
         self.frame = QFrame()
+        #setting frame as central immediately avoids "error" messiage 
+        self.setCentralWidget(self.frame)        
         self.vl = QHBoxLayout()
-        self.vtkWidget = QVTKRenderWindowInteractor(self.frame)
+
+        self.project = None
+        self.pca_transform = None
+
+        if len(argv) > 1:
+            self.n_win = int(argv[1])
+        else:
+            self.n_win = n_win
 
 
 
@@ -758,33 +741,73 @@ class MainWindow(QMainWindow):
 
         txt = QPlainTextEdit()
         txt.setFont(font)
-        txt.setMaximumWidth(400)        
+        txt.setMaximumWidth(400)
+        txt.setGeometry(50,100,300,800)
         self.txt = txt
         #color: is font color
         txt.setStyleSheet("QPlainTextEdit {background-color: #c0c0c0; color: #000000;}")
-        c0 = canvas0()        
-        self.c0 = c0
+        #self.vl.addWidget(txt)
+
+        self.c00 = []
+        self.ren = []
+
+        for i in range(self.n_win):
+            self.c00.append( canvas0(self) )
+            self.ren.append(vtk.vtkRenderer())
+
+        #self.c00 = [canvas0(),canvas0()]
+        self.vtkWidget = QVTKRenderWindowInteractor(self.frame)
         
-        self.vl.addWidget(txt)
-        self.vl.addWidget(self.vtkWidget)
-        self.vl.addWidget(c0)        
+        if self.n_win == 2:
+            self.vl.addWidget(self.c00[0])           
+            self.vl.addWidget(self.vtkWidget)
+            self.vl.addWidget(self.c00[1])
+        elif self.n_win == 1:
+            self.vl.addWidget(self.c00[0])           
+            self.vl.addWidget(self.vtkWidget)        
 
+        for c0 in self.c00:
+            c0.draw()
 
-        self.c0.draw()
+        self.c0 = self.c00[0]
 
         #vtk window setup
-        self.ren = vtk.vtkRenderer()
-        self.vtkWidget.GetRenderWindow().AddRenderer(self.ren)
+
+        for i in range(1,self.n_win):
+            self.ren[i].SetActiveCamera( self.ren[0].GetActiveCamera() )
+
+        if self.n_win == 2:
+            self.ren[0].SetViewport(0.0, 0.0, 0.5, 1.0)
+            self.ren[1].SetViewport(0.5, 0.0, 1.0, 1.0)
+        elif self.n_win == 1:
+            self.ren[0].SetViewport(0.0, 0.0, 1.0, 1.0)
+
+            
+        render_win = self.vtkWidget.GetRenderWindow()
+
+
+        gray = [.8,.82,.8,.82]
+
+        for i,ren0 in enumerate(self.ren):
+            render_win.AddRenderer(ren0)            
+            ren0.RemoveAllViewProps()
+            g = gray[i]
+            ren0.SetBackground(g,g,g)
+            
+
+
+        #self.ren[0].SetBackground(.8,.8,.8)
+        #self.ren[1].SetBackground(.82,.82,.82)        
+
+        self.ren0 = self.ren[0]
+
         
         self.iren = self.vtkWidget.GetRenderWindow().GetInteractor()
 
-        self.ren.SetBackground(.8,.8,.8)
 
-        self.renderer = self.ren
         self.frame.setLayout(self.vl)
-        
-        self.setCentralWidget(self.frame)
 
+        
         self.iren.Start()
 
         #self.statusBar().showMessage('vtk editor')
@@ -794,7 +817,10 @@ class MainWindow(QMainWindow):
         self.vtkWidget.GetRenderWindow().Render()
 
         self.mlist = []
+        self.mlist2 = []
         self.mcolor = ""
+
+        self.setGeometry(50,100,1700,800)
         
         #this is necessary
         self.show()
@@ -804,9 +830,9 @@ class MainWindow(QMainWindow):
         self.menuBar().setNativeMenuBar(False)
         self.fileMenu = self.menuBar().addMenu("&File")
         self.fileMenu.addAction(self.open_project_action)
+        self.fileMenu.addAction(self.get_transform_action)        
         
         self.actionMenu = self.menuBar().addMenu("&Action")
-        self.actionMenu.addAction(self.color_action)
         self.actionMenu.addAction(self.qcolor_action)
         self.actionMenu.addAction(self.slide_action)
         self.actionMenu.addAction(self.camera_info_action)
@@ -818,9 +844,10 @@ class MainWindow(QMainWindow):
         
     def createActions(self):
         self.open_project_action = QAction("&Open Project...", self,triggered=self.open_project)
+        self.get_transform_action = QAction("&Get Transform...", self,triggered=self.get_transform)
         
-        self.color_action = QAction("&Color", self, triggered=self.do_color)
-        self.qcolor_action = QAction("&QColor", self, triggered=self.do_qcolor)        
+        self.qcolor_action = QAction("&QColor", self, triggered=self.do_qcolor)
+
         self.slide_action = QAction("Size", self, triggered=self.do_slide)
 
         self.mode1_action = QAction("View", self, triggered=self.do_mode1)
@@ -858,19 +885,19 @@ class MainWindow(QMainWindow):
 
         print(df_cam)
 
-        cam = self.ren.GetActiveCamera()
+        cam = self.ren0.GetActiveCamera()
 
         cam.SetPosition(df_cam.loc['pos',:])
         cam.SetViewUp(df_cam.loc['up',:])
         cam.SetFocalPoint(df_cam.loc['focal',:])
 
-        self.ren.ResetCamera()        
+        self.ren0.ResetCamera()        
         
     def camera_info(self):
         mwin = self
 
-        cam = mwin.ren.GetActiveCamera()
-        size = mwin.ren.GetRenderWindow().GetSize()
+        cam = mwin.ren0.GetActiveCamera()
+        size = mwin.ren0.GetRenderWindow().GetSize()
         #tp = mwin.ren.GetProjectionTransformMatrix()
 
         #tp = cam.GetProjectionTransformMatrix(mwin.ren)    
@@ -919,8 +946,8 @@ class MainWindow(QMainWindow):
         #capture the initial camera state
         mwin = self
 
-        cam = mwin.ren.GetActiveCamera()
-        size = mwin.ren.GetRenderWindow().GetSize()
+        cam = mwin.ren0.GetActiveCamera()
+        size = mwin.ren0.GetRenderWindow().GetSize()
 
         n,f = cam.GetClippingRange()
 
@@ -968,19 +995,17 @@ class MainWindow(QMainWindow):
         dlg.setWindowTitle("HELLO!")
         dlg.exec_()
 
-    def do_color(self,mode_changed=False):
-        if 'cloud' in self.mlist:
-            self.do_vpts2 = True           
-        else:
-            self.do_vpts2 = False            
-        do_color2(self,mode_changed)
-        
+
 
     def do_qcolor(self,mode_changed=False):
-        if 'cloud' in self.mlist:
-            self.do_vpts2 = True           
+        if 'cloud' in self.mlist2:
+            self.do_vpts2 = True
         else:
             self.do_vpts2 = False
+
+        if not hasattr(self,'df_tot'):
+            print("no project")
+            return
 
         self.mode_changed = mode_changed
 
@@ -990,67 +1015,24 @@ class MainWindow(QMainWindow):
 
             #mwin.csk.df_avg2 = mwin.csk.df_avg.copy()
 
-            qlis = Dialog_tview(mwin,df_avg=mwin.csk.df_avg,apply_func=do_qcolor2)
+            #qlis = Dialog_tview(mwin,name_list=[],df_avg=mwin.csk.df_avg,apply_func=do_qcolor2)
+            qlis = Dialog_tview(mwin,name_list=mwin.mlist,df_avg=mwin.df_tot,apply_func=do_qcolor2)
 
             qlis.resize(300,500)
             qlis.setModal(False)
             #qlis.exec_() #for modal
             qlis.show()
         
-            
+        print("second qcolor2")
         do_qcolor2(self)
-
-
-    def do_color0(self):
-        iren2 = self.vtkWidget.GetRenderWindow().GetInteractor()
-
-        if not hasattr(self,"vpts"):
-            print("no data")
-            return
-
-        map0 = self.vpts.map0
-        dfm = self.df_info.loc[map0,:]
-
-        dlg = MRad(self,list(dfm.columns))
-        dlg.setWindowTitle("HELLO!")
-        dlg.exec_()
-        
-
-        m = self.m
-        colors = dfm.loc[:,m].values
-
-        cmap = mpl.cm.get_cmap('jet')
-
-        vmin = 0.0
-        vmax = np.amax(colors)
-
-        self.c0.cbar(vmin,vmax)
-        self.c0.cb.set_label(m)
-        self.c0.draw()
-
-        colors = colors/np.amax(colors)
-
-        colors8 = cmap(colors,bytes=True)
-
-        scol8 = ns.numpy_to_vtk(num_array=colors8, deep=True, array_type=vtk.VTK_UNSIGNED_CHAR)
-
-        #this works
-        self.vpts.p_data.GetPointData().RemoveArray('col8')
-
-        scol8.SetName('col8')
-        self.vpts.p_data.GetPointData().AddArray(scol8)
-
-        #ok this works, can add and remove actors at will
-        #test
-        self.ren.RemoveActor(self.vpts2.actor)
-
-        self.vtkWidget.GetRenderWindow().Render()
+        print("after second")
 
 
     def cell_info(self,cell):
         info = ["cell",str(cell)]
 
-        markers = self.df_info.columns        
+        #markers = self.df_info.columns
+        markers = self.df_tot.columns        
         #marker name lengths
         mlens = [len(x) for x in markers]
         mw = "%"+str(max(mlens)+1)+"s"
@@ -1063,7 +1045,7 @@ class MainWindow(QMainWindow):
         shead = mw % "marker" + " " + sw % "value"
 
         info.append(shead)
-        cell_data = self.df_info.loc[cell,:].values
+        cell_data = self.df_tot.loc[cell,:].values
         
         for i,m in enumerate(markers):
             cd = cell_data[i]
@@ -1075,6 +1057,30 @@ class MainWindow(QMainWindow):
         qstr = "\n".join(info)
 
         self.txt.setPlainText(qstr)
+        self.txt.show()
+
+
+    def get_transform(self):
+        pdir = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+
+        if pdir == "" or pdir == None: return
+
+        self.dir_name = pdir
+
+        csk = csk1.cytoskel(pdir)
+        #if not csk.open():
+        if not csk.open2(): #make this the new version
+            print("Invalid project")
+            return
+
+        if 'pca_transform' in csk.adata.uns:
+            self.pca_transform = csk.adata.uns['pca_transform']
+            print('got transform', self.pca_transform['uu'].shape)
+            print(self.pca_transform['markers'])
+        else:
+            self.pca_transform = None
+
+        
 
 
     def open_project(self):
@@ -1095,14 +1101,34 @@ class MainWindow(QMainWindow):
         else:
             self.csk = csk
 
-        dset(csk,self)
+        dset2(csk,self)
 
         qstr = pdir
         self.txt.setPlainText(qstr)
+        #self.txt.show()
         
         self.iren = self.vtkWidget.GetRenderWindow().GetInteractor()
-        self.ren.RemoveAllViewProps()
-        self.ren.SetBackground(.8,.8,.8)
+
+        gray = [.8,.82]
+
+        for i,ren0 in enumerate(self.ren):
+            ren0.RemoveAllViewProps()
+            g = gray[i]
+            ren0.SetBackground(g,g,g)
+
+        if self.project is not None:
+            for c0 in self.c00:
+                c0.clear()
+                c0.draw()
+        self.project = pdir
+
+        self.mlist = []
+
+
+        #tedit = QtGui.QPlainTextEdit()
+
+
+        #tedit.show()
 
 
         
@@ -1111,7 +1137,7 @@ class MainWindow(QMainWindow):
         self.vtkWidget.GetRenderWindow().Render()                
 
         #ok this solved the view scaling problem
-        self.ren.ResetCamera()
+        self.ren0.ResetCamera()
 
         #
         self.camera_info0()
@@ -1124,7 +1150,7 @@ class MainWindow(QMainWindow):
 
     def use_data(self,vpts=None):
         self.vpts = vpts
-
+        
         vpts2 = self.vpts2
 
         npnts2 = vpts2.data.shape[0]
@@ -1139,17 +1165,20 @@ class MainWindow(QMainWindow):
         vpts2.p_data.GetPointData().AddArray(scol8)
         
 
-        self.ren.AddActor(vpts.actor)
+        #self.ren0.AddActor(vpts.actor)
+        vpts_list = self.vpts_list
 
-
-        self.ren.AddActor(vpts2.actor)
-
+        for i,ren in enumerate(self.ren):
+            #ren.AddActor(vpts.actor)
+            vpts0 = vpts_list[i]
+            ren.AddActor(vpts0.actor)                        
+            ren.AddActor(vpts2.actor)
+            ren.AddActor(vpts0.line_actor)
         self.vpts2_actor = True
         
-        self.ren.AddActor(vpts.line_actor)
         style = InteractorStyle(vpts,self)
 
-        style.SetDefaultRenderer(self.ren)
+        style.SetDefaultRenderer(self.ren[0])
         self.iren.SetInteractorStyle(style)
         
         #this is necessary
@@ -1177,93 +1206,236 @@ def read_x(fname):
     return x
         
 
-def dset(csk,mwin):
+
+def mk_df_tot(adata):
+
+    df_obs = adata.obs
+
+    N = adata.shape[0]
+
+    cat_markers = []
+    cat_cols = []
+
+    cat_rdicts = {}
+
+    num_markers = []
+    num_cols = []
+
+    for m in df_obs.columns:
+        col = df_obs[m]
+
+        dtype = col.dtype.name
+
+
+        if col.dtype.name == 'category':
+            mcat = m
+            xcat = df_obs[mcat]
+            cats = list(set(xcat))
+            cats.sort()
+
+            cat_dict = {}
+            cat_rdict = {}
+
+            for i,cat in enumerate(cats):
+                cat_dict[cat] = i
+                cat_rdict[i] = cat
+
+
+            ivalues = np.zeros(N,dtype=int)
+            for cat in cat_dict:
+                sel = df_obs[mcat] == cat
+                ivalues[sel] = cat_dict[cat]
+
+            cat_rdicts[mcat] = cat_rdict
+            cat_markers.append(mcat)
+            cat_cols.append(ivalues)
+
+        if dtype == 'int64' or dtype == 'float64':
+            num_markers.append(m)
+            num_cols.append(df_obs[m].values)
+
+    df_list = []
+
+    Xcat = np.array(cat_cols,dtype=int).T
+
+    if len(cat_markers) > 0:
+        df_cat = pd.DataFrame(Xcat,columns=cat_markers)
+        df_list.append(df_cat)
+
+    Xnum = np.array(num_cols).T
+
+    if len(num_markers) > 0:
+        df_num = pd.DataFrame(Xnum,columns=num_markers)
+        df_list.append(df_num)
+            
+
+    df_avg = adata.uns['df_avg']
+    df_list.append(df_avg)
+
+    df_tot = pd.concat(df_list,axis=1)
+
+    return df_tot,cat_rdicts
+
+
+
+def get_tversion(csk,pca_trans=None,X1=None,X00=None):
+    """
+    contructs tversion from csk fields
+    sindex will be 0 here
+    uxtot and ux2 gotten later
+    add pca_transform in some cases
+    """
+
+    adata = csk.adata
+
+    tv = {}
+
+    if pca_trans is not None:
+        tv['pca_trans'] = pca_trans
+
+    tv['df_avg'] = adata.uns['df_avg']
+
+    ['csr_avg', 'csr_br', 'csr_mst', 'csr_nn']
+
+    for key in ['csr_avg', 'csr_br', 'csr_mst']:
+        tv[key] = adata.obsp[key]
+
+
+    #get pcells and edges
+
+    csr_br = tv['csr_br']
+
+    #get the indices of the non-empty rows
+    nnz_per_row = csr_br.getnnz(axis=1)
+    row_indices = np.where(nnz_per_row > 0)[0]
+    pcells = row_indices
+
+    tv['pcells'] = pcells
+
+    upper = sp.triu(csr_br)
+    edges = np.array(upper.nonzero(),dtype=int).T
+
+    tv['edges'] = edges
+
+    idx0 = np.arange(row_indices.shape[0])
+
+    rmap0 = np.full((adata.shape[0],),-1,dtype=int)
+    rmap0[row_indices] = idx0
+
+    tv['rmap0'] = rmap0
+
+    tv['ux2_edges'] = rmap0[edges]
+    
+
+    if pca_trans is not None:
+        mu = pca_trans['mu']
+        uu = pca_trans['uu']
+
+        uxtot = (X1 - mu) @ uu
+        ux2 = uxtot[pcells,:]
+
+        uxtot2 = (X00 - mu) @ uu
+        unorms2 = la.norm(uxtot2,axis=1)
+        urad2 = np.amax(unorms2)
+        tv['urad2'] = urad2
+        tv['uxtot2'] = uxtot2
+
+        pca3 = uxtot[:,2]
+
+        tv['uxtot'] = uxtot
+        tv['ux2'] = ux2
+        tv['pca3'] = pca3
+
+        unorms = la.norm(ux2,axis=1)
+        urad = np.amax(unorms)
+        tv['urad'] = urad
+
+
+
+    return tv
+
+def get_pca_transform(X0):
+
+    pca = csk1.pca_coords(X0,fix=True)
+    transform = {}
+    pca.save(transform)
+
+    return transform
+
+
+
+def dset2(csk,mwin):
+    """
+    new version
+    """
+
+    adata = csk.adata
+    mwin.df_tot,mwin.cat_rdicts = mk_df_tot(adata) 
 
     pcells = list(csk.br_adj.keys())
-    map0,rmap0 = mk_maps(csk.df_avg,pcells)
+    tcols = adata.uns['traj_markers']
+    tdata = csk.df.loc[:,tcols].values
+    pca_trans = get_pca_transform(tdata)
 
-    ncells = len(map0)
+    skip = 1
 
-    tcols = csk.traj_markers
+    tv = get_tversion(csk,pca_trans,csk.df_avg.loc[:,tcols].values,csk.df.loc[::skip,tcols].values)
     
-    tdata0 = csk.df_avg.loc[pcells,tcols].values
-    #tdata0 = csk.df.loc[pcells,tcols].values #to see the original trajectories
-    tdata = csk.df.loc[:,tcols].values    
-    n = tdata0.shape
+    
+    #n = tdata0.shape
 
     print("do pca")
 
-    #use the original data to get the pca transform
-    #so that it is independent of MST etc
-    pca = csk1.pca_coords(tdata,fix=True)
-    ux,urad = pca.get_coords(tdata0-pca.mu)
-
-    print("urad",urad)
+    ux = tv['ux2']
+    urad = tv['urad']
 
     scale = 5.0/urad
-
-    #data = ux[:,:3]
-    #do scaling based on urad
     data = ux[:,:3]*scale
-    
-
-    hdata = ["pca00","pca01","pca02"]
-    df_data = pd.DataFrame(data,columns=hdata,index=map0)
 
     br_adj = csk.br_adj
-
     r0 = .12
-
     npnts = data.shape[0]        
     rscale = np.full(npnts,r0)
 
+    rmap0 = tv['rmap0']
+    map0 = pcells
+
     vpts = vpoints(data,rscale)
     points = vpts.points
-
     vpts.add_lines(br_adj,rmap0,r0)
-
-    vpts.map0 = map0
+    vpts.map0 = tv['pcells']
     print("map0 set")    
     vpts.r0 = r0
 
+    vpts0 = vpoints(data,rscale)
+    points0 = vpts0.points
+    vpts0.add_lines(br_adj,rmap0,r0)
+    vpts0.map0 = map0
+    vpts0.r0 = r0
 
+    mwin.vpts_list = [vpts,vpts0]
     mwin.df_info = csk.df_avg
     mwin.vpts = vpts
 
-    #add some more points
+    ux2 = tv['uxtot2']
+    urad2 = tv['urad2']
 
-    skip = 1
-    mwin.skip = skip
-    tdata2 = csk.df.loc[::skip,tcols].values
-
-    mwin.df_skip = csk.df.loc[::skip,:]
-
-    """
-    #try this
-    #interesting result shows potential extra branches?
-    tdata3 = csk.csr_avg @ tdata2
-
-    for i in range(4):
-        tdata3 = csk.csr_avg @ tdata3
-    ux2,urad2 = pca.get_coords(tdata3-pca.mu)
-    """
-    ux2,urad2 = pca.get_coords(tdata2-pca.mu)
-
-
-    print("ux2",ux2.shape)
+    print("ux2",ux2.shape,"urad2",urad2)    
 
     ux2 = ux2 * scale
     rscale2 = np.full(ux2.shape[0],.1)
-    vpts2 = vpoints(ux2[:,:3],rscale2)
-
-    mwin.vpts2 = vpts2
     
+    vpts2 = vpoints(ux2[:,:3],rscale2)
+    mwin.vpts2 = vpts2
 
+#######
+
+    
 
     
 if __name__ == "__main__":
     app = QApplication([])
-    window = MainWindow()
+    window = MainWindow(argv=sys.argv)
     #window.setGeometry(200,200,1000,600);
-    window.setGeometry(50,100,1500,900)
+    #
     sys.exit(app.exec_())
