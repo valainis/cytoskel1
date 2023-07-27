@@ -332,7 +332,8 @@ class MWin(QMainWindow):
 
         self.dir_name = file
 
-        if not os.path.isfile(file+"/br.adj"):
+        
+        if not os.path.isfile(file+"/adata.h5ad"):
             s = "Invalid directory:" + file
             self.txt.setPlainText(s)
             return
