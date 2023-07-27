@@ -1090,6 +1090,11 @@ class cytoskel:
 
 
     def create2(self,adata):
+
+        self.mk_log()
+
+        self.add_log("create2")
+        
         self.adata = adata
 
         if type(adata.X) == sp.csr_matrix:
@@ -1126,6 +1131,9 @@ class cytoskel:
         self.adata.uns['coords_2d'] = {}
 
         self.adata.uns['pca_transform'] = {}
+        self.adata.uns['avg obs'] = {}
+
+        self.adata.uns['tversions'] = {}                
         
 
         self.adata.write_h5ad(self.project_dir+"adata.h5ad")
@@ -1135,13 +1143,42 @@ class cytoskel:
         t0 = time.time()
         try:
             self.adata = ad.read_h5ad(self.project_dir+"adata.h5ad")
+            print("obsp",self.adata.obsp.keys())
+            print("uns",self.adata.uns.keys())
+            print("avg",self.adata.uns['avg_params'])
         except:
             return False
+        if "traj_markers" in self.adata.uns:
+            self.traj_markers = self.adata.uns['traj_markers']
+        else:
+            is_setup = os.path.exists(self.project_dir+"run.setup")
 
-        self.traj_markers = self.adata.uns['traj_markers']
+            if is_setup:
+                gi = get_info(self.project_dir+"run.setup")
+                gi.get_marker_usage()
 
-        csr_br = self.adata.obsp['csr_br']
-        self.csr_br = csr_br
+                #self.avg_markers = gi.get_avg_cols()
+                self.traj_markers = gi.get_traj_cols()
+                #self.mon_markers = gi.get_all_mon_cols()
+                self.adata.uns['traj_markers'] = self.traj_markers
+                self.save_adata()
+            else:
+                print("no run.setup file")
+                return False
+
+        if 'csr_mst' in self.adata.obsp:
+            self.csr_mst = self.adata.obsp['csr_mst']
+            print("csr_mst",self.csr_mst.nnz)
+        else:
+            print("obsp",self.adata.obsp.keys)
+
+        if 'csr_br' in self.adata.obsp:
+            csr_br = self.adata.obsp['csr_br']
+            self.csr_br = csr_br
+        else:
+            br_adj = read_sdict(self.project_dir+"br.adj")
+            return False
+            
 
         #get the indices of the non-empty rows
         nnz_per_row = csr_br.getnnz(axis=1)
@@ -1169,9 +1206,13 @@ class cytoskel:
             os.mkdir(vdir)
 
         self.pca_views = vdir
-        
-        
 
+
+        fig_dir = self.project_dir + "figures/"
+        if not os.path.exists(fig_dir):
+            os.mkdir(fig_dir)
+        
+        self.fig_dir = fig_dir
 
         #self.df_avg = pd.read_csv(self.project_dir+"avg_mdata.csv")
         #self.adata.uns['df_avg'] = self.df_avg
@@ -1181,12 +1222,18 @@ class cytoskel:
 
         return True
 
+    def save_figure(self,fig,fig_name):
+        fig_file = self.fig_dir + fig_name
+        fig.savefig(fig_file)
+        
+
 
     def mk_trajectory_coords(self,
                                   traj_markers,
                                   l1_normalize=True
                                   ):
         self.traj_markers = traj_markers
+        self.l1_normalize = l1_normalize
         adata = self.adata
 
         X = adata[:,traj_markers].X.copy()
@@ -1202,7 +1249,11 @@ class cytoskel:
             X /= ntdata
 
         adata.uns['traj_markers'] = traj_markers
+        adata.uns['l1_normalize'] = l1_normalize
         adata.obsm['traj_coords'] = X
+
+        self.add_log('mk_trajectory_coords')
+        self.add_log("l1_normalize:",l1_normalize)
 
         self.adata.write_h5ad(self.project_dir+"adata.h5ad")
 
@@ -1324,6 +1375,8 @@ class cytoskel:
         else:
             data_cols = self.avg_markers
             self.adata = mk_adata(self.df,data_cols)
+
+            self.adata.uns['traj_markers'] = self.traj_markers
             
             self.adata.write_h5ad(project_dir+"adata.h5ad")
 
@@ -1357,9 +1410,15 @@ class cytoskel:
 
         f.close()
 
-    def add_log(self,s):
-        f = open(self.project_dir+"log.txt","a")        
-        f.write(s + "\n")
+    def add_log(self,*args):
+        f = open(self.project_dir+"log.txt","a")
+
+        stot = ""
+
+        for s in args:
+            s = str(s)
+            stot += s + " "
+        f.write(stot + "\n")
         f.close()
 
 
@@ -2054,6 +2113,8 @@ class cytoskel:
     def mk_averaging_matrix1(self,radius=5,tversion=None):
         t0 = time.time()
 
+        self.radius = radius        
+
         if tversion is not None:
             csr_mst = tversion['csr_mst']
         else:
@@ -2063,6 +2124,7 @@ class cytoskel:
 
         if tversion is not None:
             tversion['csr_avg'] = csr_avg
+            tversion['radius'] = radius
 
         self.adata.obsp['csr_avg'] = csr_avg
 
@@ -2076,6 +2138,7 @@ class cytoskel:
     def mk_averaging_matrix(self,radius=5):
         t0 = time.time()
 
+        self.radius = radius
 
         csr_mst = self.adata.obsp['csr_mst']
 
@@ -2093,6 +2156,7 @@ class cytoskel:
 
     def do_averaging1(self,navg=5,tversion=None):
         t0 = time.time()
+        self.navg = navg
         if tversion is not None:
             csr_avg = tversion['csr_avg']
         else:
@@ -2115,6 +2179,7 @@ class cytoskel:
 
         if tversion is not None:
             tversion['df_avg'] = self.df_avg
+            tversion['navg'] = navg
 
         self.df_avg.to_csv(self.project_dir + "avg_mdata.csv",index=False)
 
@@ -2128,6 +2193,7 @@ class cytoskel:
 
     def do_averaging(self,navg=5):
         t0 = time.time()
+        self.navg = navg        
         csr_avg = self.adata.obsp['csr_avg']
         adata = self.adata
 
@@ -2157,6 +2223,7 @@ class cytoskel:
     def do_averaging2(self,A,df0,navg=5,df0_key=None):
         #A is the averaging matrix
         #df0 is dataframe for markers to average
+        self.navg = navg        
         t0 = time.time()
 
         X = df0.values
@@ -2183,6 +2250,7 @@ class cytoskel:
                  n_process=8):
 
         self.add_log("starting link")
+        print("link glist gcol",glist,gcol)
 
         self.n_process = n_process
         t0 = time.time()
@@ -2229,6 +2297,7 @@ class cytoskel:
             fdist[lev_map0] = lev_dist
 
             self.add_log("level "+str(ilev)+" time "+str(t11-t00))
+            print("level "+str(ilev)+" time "+str(t11-t00))            
 
             graph_sym(dk)
 
