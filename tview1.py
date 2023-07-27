@@ -717,7 +717,16 @@ class MainWindow(QMainWindow):
 
         self.frame = QFrame()
         #setting frame as central immediately avoids "error" messiage 
-        self.setCentralWidget(self.frame)        
+        self.setCentralWidget(self.frame)
+
+        status_bar = QStatusBar()
+        self.setStatusBar(status_bar)
+        self.status_bar = status_bar
+
+
+        self.project_label = QLabel("project: ")
+        self.status_bar.addPermanentWidget(self.project_label)        
+
         self.vl = QHBoxLayout()
 
         self.project = None
@@ -1031,6 +1040,9 @@ class MainWindow(QMainWindow):
     def cell_info(self,cell):
         info = ["cell",str(cell)]
 
+        info.append("name: "+self.csk.adata.obs_names[cell])
+        info.append("\n")
+
         #markers = self.df_info.columns
         markers = self.df_tot.columns        
         #marker name lengths
@@ -1096,10 +1108,15 @@ class MainWindow(QMainWindow):
         csk = csk1.cytoskel(pdir)
         #if not csk.open():
         if not csk.open2(): #make this the new version
+            self.status_bar.showMessage("Invalid Project")            
             print("Invalid project")
             return
         else:
             self.csk = csk
+
+
+        self.project_label.setText("project: " + pdir)
+        #self.status_bar.showMessage("open: " + pdir)
 
         dset2(csk,self)
 
