@@ -319,6 +319,7 @@ class MWin(QMainWindow):
         self.eb = eb
         eb.resize(1600,700)
         self.eb.csk = self.csk
+        print("do subway")
         eb.show()
 
         
@@ -348,7 +349,18 @@ class MWin(QMainWindow):
         self.csk.open2()
         
         #for adding data like inverse density
-        self.csk.df_avg2 = self.csk.df_avg.copy()
+        #self.csk.df_avg2 = self.csk.df_avg.copy()
+
+        try:
+            adata = self.csk.adata
+            tv = adata.uns['tversions']['base']
+            self.csk.df_avg2 = tv['df_tot'].copy()
+        except:
+            #self.csk.df_avg2 = self.csk.df_avg.copy()
+            #try this
+            self.csk.df_avg2,self.csk.cat_rdicts = csk1.mk_df_tot(self.csk.adata)
+            
+        
 
         self.add_density()
 

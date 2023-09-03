@@ -129,6 +129,7 @@ class subway:
 
         
     def draw_subway(self,fig,axplot=None):
+        print("draw subway")
         csk = self.csk
         vpos = self.vpos
         cg = self.cg
@@ -261,7 +262,8 @@ class subway:
             scol2 = (scol[i] - min_tot[i])/(max_tot[i] - min_tot[i])            
             rgba = cmap(scol2) 
             #pts[i] = axplot.scatter(xyt[0],xyt[1]+dely,s=5,c=rgba)
-            pts[i] = axplot.scatter(xyt[0],xyt[1]+dely,s=5,c=rgba)            
+            #pts[i] = axplot.scatter(xyt[0],xyt[1]+dely,s=5,c=rgba)
+            pts[i] = axplot.scatter(xyt[0],xyt[1]+dely,s=10,c=rgba)                        
             j = i % 3
             if j == 2:
                 dyyy = 1.5*ydel
@@ -287,8 +289,8 @@ class subway:
 
 
         yyy = 0.0
-        #xxx = -.1
-        xxx = -.06
+        xxx = -.1 #this seem ok, text further to left
+        #xxx = -.06
         #dyyy0 = .054
         dyyy0 = .072
         dyyy1 = .033
@@ -541,8 +543,8 @@ class subway:
 
 
         yyy = 0.0
-        #xxx = -.1
-        xxx = -.06
+        #xxx = -.1 #try this again
+        xxx = -.06 #used for long time
         #dyyy0 = .054
         dyyy0 = .072
         dyyy1 = .033
