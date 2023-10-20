@@ -53,6 +53,78 @@ csk_ctx = mp.get_context("fork")
 import traceback
 
 
+def mk_df_tot(adata):
+
+    df_obs = adata.obs
+
+    N = adata.shape[0]
+
+    cat_markers = []
+    cat_cols = []
+
+    cat_rdicts = {}
+
+    num_markers = []
+    num_cols = []
+
+    for m in df_obs.columns:
+        col = df_obs[m]
+
+        dtype = col.dtype.name
+
+
+        if col.dtype.name == 'category':
+            mcat = m
+            xcat = df_obs[mcat]
+            cats = list(set(xcat))
+            cats.sort()
+
+            cat_dict = {}
+            cat_rdict = {}
+
+            for i,cat in enumerate(cats):
+                cat_dict[cat] = i
+                istr = str(i)
+                cat_rdict[istr] = cat
+
+
+            ivalues = np.zeros(N,dtype=int)
+            for cat in cat_dict:
+                sel = df_obs[mcat] == cat
+                ivalues[sel] = cat_dict[cat]
+
+            cat_rdicts[mcat] = cat_rdict
+            cat_markers.append(mcat)
+            cat_cols.append(ivalues)
+
+        if dtype == 'int64' or dtype == 'float64':
+            num_markers.append(m)
+            num_cols.append(df_obs[m].values)
+
+    df_list = []
+
+    Xcat = np.array(cat_cols,dtype=int).T
+
+    if len(cat_markers) > 0:
+        df_cat = pd.DataFrame(Xcat,columns=cat_markers)
+        df_list.append(df_cat)
+
+    Xnum = np.array(num_cols).T
+
+    if len(num_markers) > 0:
+        df_num = pd.DataFrame(Xnum,columns=num_markers)
+        df_list.append(df_num)
+            
+
+    df_avg = adata.uns['df_avg']
+    df_list.append(df_avg)
+
+    df_tot = pd.concat(df_list,axis=1)
+
+    return df_tot,cat_rdicts
+
+
+
 def mk_adata(df,data_cols,cat_cols=[],df_obs=None):
     """
     create AnnData object from typical mass cytometry
@@ -164,7 +236,7 @@ def branch_csr0(paths,N):
 
     for path in paths:
         pnodes = path[0]
-        
+
         e0 = pnodes[:-1]
         e1 = pnodes[1:]
 
@@ -624,8 +696,6 @@ class mst:
         #now do the mst
         tmp = sp.csgraph.minimum_spanning_tree(bb)
 
-        print("tmp",type(tmp))
-
         ncomp, labels = sp.csgraph.connected_components(tmp,directed=False)
 
         print("tmp mst components",ncomp)                
@@ -926,7 +996,7 @@ def level_link2(X,lev0,lev1,k=1,nsegs=8):
         dk[map0,adj2[:,i]] = dist[:,i]
 
     #remove this so graph we have directed edges
-    #graph_sym(dk)
+    #graph_sym(dk) #try leaving this in - does not help
     return dk
 
 
@@ -1140,26 +1210,37 @@ class cytoskel:
 
 
     def open2(self):
+
         t0 = time.time()
         try:
             self.adata = ad.read_h5ad(self.project_dir+"adata.h5ad")
+
             print("obsp",self.adata.obsp.keys())
             print("uns",self.adata.uns.keys())
-            print("avg",self.adata.uns['avg_params'])
+
+            if 'avg_params' in self.adata.uns:
+                avg_params = self.adata.uns['avg_params']
+                print("avg_params",avg_params)
+
+            print("open2: adata read")
         except:
+            print("failure to open2")
             return False
+        if 'csr_nn' in self.adata.obsp:
+            self.csr_nn = self.adata.obsp['csr_nn']
+        
         if "traj_markers" in self.adata.uns:
             self.traj_markers = self.adata.uns['traj_markers']
         else:
+            print("no traj_markers")
             is_setup = os.path.exists(self.project_dir+"run.setup")
 
             if is_setup:
                 gi = get_info(self.project_dir+"run.setup")
                 gi.get_marker_usage()
 
-                #self.avg_markers = gi.get_avg_cols()
                 self.traj_markers = gi.get_traj_cols()
-                #self.mon_markers = gi.get_all_mon_cols()
+
                 self.adata.uns['traj_markers'] = self.traj_markers
                 self.save_adata()
             else:
@@ -1168,17 +1249,20 @@ class cytoskel:
 
         if 'csr_mst' in self.adata.obsp:
             self.csr_mst = self.adata.obsp['csr_mst']
-            print("csr_mst",self.csr_mst.nnz)
         else:
-            print("obsp",self.adata.obsp.keys)
+            print("obsp 2",self.adata.obsp.keys)
+            return False
 
         if 'csr_br' in self.adata.obsp:
             csr_br = self.adata.obsp['csr_br']
             self.csr_br = csr_br
         else:
             br_adj = read_sdict(self.project_dir+"br.adj")
-            return False
-            
+            pcells = np.array(br_adj.keys())
+            csr_br = mk_submatrix(pcells,self.csr_mst)
+            self.csr_br = csr_br
+            self.adata.obsp['csr_br'] = self.csr_br
+            self.save_adata()
 
         #get the indices of the non-empty rows
         nnz_per_row = csr_br.getnnz(axis=1)
@@ -1190,7 +1274,15 @@ class cytoskel:
 
         self.br_adj = SortedDict(zip(row_indices,rows))
 
-        self.df_avg = self.adata.uns['df_avg']
+        if 'df_avg' not in self.adata.uns:
+            if os.path.exists(self.project_dir+"avg_mdata.csv"):
+                self.df_avg = pd.read_csv(self.project_dir+"avg_mdata.csv")
+            else:
+                print("need to run averaging")
+                self.df_avg = None
+            self.adata.uns['df_avg'] = self.df_avg
+        else:
+            self.df_avg = self.adata.uns['df_avg']
 
         self.df = self.adata.to_df()
 
@@ -1227,6 +1319,11 @@ class cytoskel:
         fig.savefig(fig_file)
         
 
+    def save_figure_csv(self,df,df_name):
+        #save the csv data for a figure
+        fig_file = self.fig_dir + df_name
+        #dfw.to_csv("dfw.csv",index=False,float_format='%.3f')
+        df.to_csv(fig_file,float_format='%.3f')
 
     def mk_trajectory_coords(self,
                                   traj_markers,
@@ -1246,11 +1343,13 @@ class cytoskel:
 
         if l1_normalize:
             ntdata = la.norm(X,ord=1,axis=1,keepdims=True)
+            adata.obsm['ntdata'] = ntdata            
             X /= ntdata
 
         adata.uns['traj_markers'] = traj_markers
         adata.uns['l1_normalize'] = l1_normalize
         adata.obsm['traj_coords'] = X
+
 
         self.add_log('mk_trajectory_coords')
         self.add_log("l1_normalize:",l1_normalize)
@@ -1282,6 +1381,7 @@ class cytoskel:
 
         if is_nn:
             self.csr_nn = sp.load_npz(self.project_dir+"nn.npz")
+            print("read nn.npz")
 
         if os.path.exists(project_dir+"csr_br.npz"):
             self.csr_br = sp.load_npz(self.project_dir+"csr_br.npz")
@@ -1329,9 +1429,16 @@ class cytoskel:
             self.mst_dist = ltmp.data
         elif os.path.exists(project_dir+"mst.adj"):
             self.mst_adj = read_sdict(project_dir+"mst.adj")
+
+            #note second read is read_sdict2 which returns csr_matrix with
+            #ones as nonzero elements
             self.csr_mst = read_sdict2(project_dir+"mst.adj")
             if os.path.isfile(project_dir+"nn.npz"):
                 csr_nn = sp.load_npz(project_dir+"nn.npz")
+                self.csr_nn = csr_nn
+
+                #this is elementwise multipy to pick out mst edges
+                #with correct lengths
                 self.csr_mst = csr_nn.multiply(self.csr_mst)
             print("mst read")
         else:
@@ -1361,6 +1468,23 @@ class cytoskel:
 
         if os.path.exists(project_dir+"adata.h5ad"):
             self.adata = ad.read_h5ad(project_dir+"adata.h5ad")
+
+            print("has adata",self.project_dir)
+
+            if 'df_avg' not in self.adata.uns:
+                self.adata.uns['df_avg'] = self.df_avg
+            
+
+            if 'csr_nn' not in self.adata.obsp:
+                if hasattr(self,'csr_nn'):
+                    print("adding csr_nn to adata")
+                    self.adata.obsp['csr_nn'] = self.csr_nn
+                if hasattr(self,'csr_mst'):
+                    self.adata.obsp['csr_mst'] = self.csr_mst
+
+            else:
+                print("obsp csr_nn",self.adata.obsp.keys())
+
             print("read adata.h5ad")
             if not 'coords_2d' in self.adata.uns.keys():
                 self.adata.uns['coords_2d'] = {}
@@ -1371,12 +1495,19 @@ class cytoskel:
                 if hasattr(self,"df_mds2"):
                     self.adata.uns['coords_2d']["mds 0"] = 1
                     self.adata.uns["mds 0"] = self.df_mds2
+
+            self.save_adata()
                 
         else:
             data_cols = self.avg_markers
             self.adata = mk_adata(self.df,data_cols)
 
             self.adata.uns['traj_markers'] = self.traj_markers
+
+            if hasattr(self,'csr_nn'):
+                self.adata.obsp['csr_nn'] = self.csr_nn
+            if hasattr(self,'csr_mst'):
+                self.adata.obsp['csr_mst'] = self.csr_mst
             
             self.adata.write_h5ad(project_dir+"adata.h5ad")
 
@@ -1912,12 +2043,9 @@ class cytoskel:
         self.mst_adj = ltmp.rows
         self.mst_dist = ltmp.data
 
-
         paths = find_branches0(self.mst_adj,self.mst_dist,branchings,start)
 
         self.paths = paths
-
-        print(type(paths[0]))
 
         #self.csr_br = branch_csr(paths,self.adata.shape[0])
 
@@ -2415,7 +2543,6 @@ class cytoskel:
 
         return dmst
 
-
     def mk_pca_transform(self):
         adata = self.adata
         tcols = adata.uns['traj_markers']
@@ -2516,7 +2643,7 @@ class cytoskel:
 
     def check_same(self,pdir0):
         csk0 = cytoskel(pdir0)
-        csk0.open()
+        csk0.open2()
 
         br0_adj = csk0.br_adj
         br_adj = self.br_adj
