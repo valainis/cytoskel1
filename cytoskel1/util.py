@@ -191,7 +191,7 @@ def read_sdict(sdict_name):
     return sdict
 
 
-def read_sdict2(sdict_name):
+def read_sdict2(sdict_name,N=None):
     """
     read integer dict from file object
     return as SortedDict
@@ -205,7 +205,8 @@ def read_sdict2(sdict_name):
     s = [x for x in s if x != ""]
     s = [x.split() for x in s]
 
-    N = len(s)
+    if N is None:
+        N = len(s)
 
     lil_adj = sp.lil_matrix((N,N))
 
