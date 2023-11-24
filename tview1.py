@@ -505,10 +505,16 @@ def mk_color(mwin,vpts,c0,m):
     dfm = mwin.df_tot.loc[map0,:]
 
     colors = dfm.loc[:,m].values
+    colors_tot = mwin.df_tot.loc[:,m].values
     cmap = mpl.cm.get_cmap(mwin.cmap)
 
-    vmin = np.amin(colors)
-    vmax = np.amax(colors)
+    #vmin = np.amin(colors)
+    #vmax = np.amax(colors)
+
+    #do it this way to get full range of values
+    #in case some are missing for trajectory cells
+    vmin = np.amin(colors_tot)
+    vmax = np.amax(colors_tot)    
 
     colors = (colors - vmin)/(vmax-vmin)    
     colors8 = cmap(colors,bytes=True)            
@@ -742,16 +748,20 @@ class MainWindow(QMainWindow):
         #set up text widget
         font = QFont()
 
-        #font.setFamily("Courier")
-        font.setFamily("Arial")
+        font.setFamily("Courier")
+        #font.setFamily("Arial")
         font.setStyleHint(QFont.Monospace)
         font.setFixedPitch(True)
         font.setPointSize(16)
 
         txt = QPlainTextEdit()
+        #txt = QTextEdit() #try this
         txt.setFont(font)
         txt.setMaximumWidth(400)
-        txt.setGeometry(50,100,300,800)
+        #txt.setAlignment(Qt.AlignLeft)        
+        #change width to 400 for longer categorical names, was 300
+        #coords are x from left , y from top, width, height
+        txt.setGeometry(50,100,400,800)
         self.txt = txt
         #color: is font color
         txt.setStyleSheet("QPlainTextEdit {background-color: #c0c0c0; color: #000000;}")
@@ -1047,6 +1057,8 @@ class MainWindow(QMainWindow):
         markers = self.df_tot.columns        
         #marker name lengths
         mlens = [len(x) for x in markers]
+        maxlen = max(mlens)+1
+        
         mw = "%"+str(max(mlens)+1)+"s"
         fw = "%9.1f"
         iw = "%9d"
@@ -1056,14 +1068,26 @@ class MainWindow(QMainWindow):
 
         shead = mw % "marker" + " " + sw % "value"
 
+        shead = "marker".ljust(maxlen) + "   value"
+
         info.append(shead)
         cell_data = self.df_tot.loc[cell,:].values
-        
+
         for i,m in enumerate(markers):
+            mpad = m.ljust(maxlen)
             cd = cell_data[i]
-            if isinstance(cd,(int,float)):
-                info.append(mw % m + " " + "%9.3f" % cell_data[i])
+            if m in self.cat_rdicts:
+                cat_rdict = self.cat_rdicts[m]
+                cd_str = cat_rdict[cd]
+                #info.append(mw % m + " : " + cd_str)
+                info.append(mpad + " : " + cd_str)
+                #info.append(m + ":" + cd_str)
+            elif isinstance(cd,(int,float)):
+                #info.append(mw % m + " " + "%9.3f" % cell_data[i])
+                info.append(mpad + " : " + "%9.3f" % cell_data[i])
+                #info.append(m + ":" + "%9.3f" % cell_data[i])
             else:
+                print("cat",m,cd)
                 info.append(mw % m + " : " + str(cd))
 
         qstr = "\n".join(info)
